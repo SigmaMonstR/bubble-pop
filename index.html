@@ -1,0 +1,2358 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Bubble Poke</title>
+<style>
+  :root {
+    --paper: #f7fbff;
+    --accent: #ff4fa3;
+    --fire: #ff7a1a;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; height: 100%; overflow: hidden;
+    background: #0b1020; color: var(--paper);
+    font-family: "Baloo 2", "Trebuchet MS", "Avenir Next", system-ui, sans-serif;
+    user-select: none;
+  }
+  #game { display: block; width: 100vw; height: 100vh; touch-action: none; }
+
+  /* ---------------------------------------------------------------- hud */
+  .hud {
+    position: fixed; inset: 0; pointer-events: none;
+    padding: max(14px, env(safe-area-inset-top)) 16px 16px;
+    display: flex; flex-direction: column; justify-content: space-between;
+  }
+  .hud-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+
+  .pill {
+    background: rgba(11, 16, 32, .48);
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    border: 2px solid rgba(255, 255, 255, .22);
+    border-radius: 999px; padding: 8px 18px; line-height: 1.1;
+  }
+  .score { font-size: clamp(28px, 6vw, 52px); font-weight: 800; letter-spacing: .5px; }
+  .score small { display: block; font-size: .32em; font-weight: 600; opacity: .75; letter-spacing: 2px; }
+  .hearts {
+    display: inline-block; margin-top: 8px; padding: 5px 14px;
+    font-size: clamp(15px, 3vw, 21px); letter-spacing: 3px; color: #ff6b8e;
+  }
+  .hearts .gone { color: rgba(255, 255, 255, .22); }
+  .hearts.hurt { animation: shake .32s; }
+  @keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-7px); }
+    75% { transform: translateX(7px); }
+  }
+
+  .pstack { display: flex; flex-direction: column; align-items: flex-start; }
+  .pstack.mirror { align-items: flex-end; text-align: right; }
+  .pstack .combo { align-self: inherit; }
+  .who {
+    display: inline-block; margin-bottom: 7px; padding: 4px 14px;
+    font-size: 13px; font-weight: 800; letter-spacing: 2px; color: #ffe27a;
+  }
+  .pstack.out { opacity: .42; }
+
+  .rightstack { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+  .timer {
+    font-size: clamp(20px, 4.4vw, 32px); font-weight: 800;
+    font-variant-numeric: tabular-nums; letter-spacing: 1px; padding: 6px 18px;
+  }
+  .timer.low { color: #ff6b8e; border-color: rgba(255, 107, 142, .7); animation: pulse .6s infinite; }
+  @keyframes pulse { 50% { transform: scale(1.09); } }
+  .level { font-size: clamp(13px, 2.4vw, 18px); font-weight: 800; text-align: center; padding-bottom: 10px; }
+  .bar { width: 88px; height: 6px; margin: 7px auto 0; border-radius: 3px; overflow: hidden; background: rgba(255, 255, 255, .2); }
+  .bar i { display: block; height: 100%; width: 0; border-radius: 3px; background: linear-gradient(90deg, #7ee8ff, #ff4fa3); }
+
+  .combo {
+    align-self: center; margin-top: 8px;
+    font-size: clamp(18px, 4vw, 30px); font-weight: 800;
+    color: #ffe27a; text-shadow: 0 2px 12px rgba(255, 190, 60, .6);
+    opacity: 0; transform: scale(.7); transition: opacity .12s, transform .12s;
+  }
+  .combo.on { opacity: 1; transform: scale(1); }
+
+  .controls { display: flex; gap: 10px; align-items: center; pointer-events: auto; flex-wrap: wrap; }
+  button.ctl {
+    pointer-events: auto; cursor: pointer;
+    background: rgba(11, 16, 32, .48);
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    border: 2px solid rgba(255, 255, 255, .22);
+    color: var(--paper); font: inherit; font-weight: 700; font-size: 15px;
+    border-radius: 999px; padding: 9px 16px;
+  }
+  button.ctl:hover { background: rgba(255, 255, 255, .16); }
+
+  .power {
+    display: inline-block; margin-top: 8px; padding: 6px 16px;
+    font-size: clamp(13px, 2.6vw, 17px); font-weight: 800; letter-spacing: .5px;
+    font-variant-numeric: tabular-nums; color: #cfe6ff;
+  }
+  .power.ready {
+    color: #16062a; border-color: transparent;
+    background: linear-gradient(100deg, #7ee8ff, #ff9ad0 60%, #ffe27a);
+    animation: pulse .7s infinite;
+  }
+
+  /* live microphone level, for setting the clap threshold */
+  .meter { width: 150px; flex: none; }
+  .meter .track { height: 8px; border-radius: 4px; background: rgba(255,255,255,.16); overflow: hidden; }
+  .meter .track i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #7ee8ff, #ffe27a); }
+  .meter .mark { position: relative; height: 10px; margin-top: 3px; }
+  .meter .mark span {
+    position: absolute; top: 0; width: 2px; height: 7px; background: var(--accent);
+    border-radius: 1px; transform: translateX(-1px);
+  }
+  .meter.clapped .track i { background: #fff; }
+
+  /* burn flash when the phoenix catches you */
+  .flash {
+    position: fixed; inset: 0; pointer-events: none; z-index: 4; opacity: 0;
+    background: radial-gradient(circle at 50% 50%, rgba(255, 60, 0, 0) 40%, rgba(255, 60, 0, .55) 100%);
+    transition: opacity .45s ease;
+  }
+  .flash.on { opacity: 1; transition: opacity .06s; }
+
+  .banner {
+    position: fixed; inset: 0; display: grid; place-items: center; z-index: 5;
+    pointer-events: none; opacity: 0; transform: scale(.8); text-align: center;
+    transition: opacity .25s ease, transform .25s cubic-bezier(.2, 1.5, .4, 1);
+  }
+  .banner.on { opacity: 1; transform: scale(1); }
+  .banner b {
+    display: block; font-size: clamp(42px, 12vw, 96px); font-weight: 800; line-height: 1;
+    background: linear-gradient(100deg, #7ee8ff, #ff4fa3 55%, #ffe27a);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    filter: drop-shadow(0 6px 24px rgba(255, 79, 163, .5));
+  }
+  .banner span {
+    display: block; margin-top: 10px; font-size: clamp(16px, 4vw, 26px);
+    font-weight: 700; color: #fff; text-shadow: 0 2px 14px rgba(0, 0, 0, .85);
+  }
+
+  /* ---------------------------------------------------------------- 1980s arcade cabinet */
+  .crt { display: none; }
+  [data-theme="arcade"] .crt {
+    display: block; position: fixed; inset: 0; z-index: 50; pointer-events: none;
+    background:
+      repeating-linear-gradient(to bottom,
+        rgba(0, 0, 0, .34) 0px, rgba(0, 0, 0, .34) 1px,
+        rgba(0, 0, 0, 0) 2px, rgba(0, 0, 0, 0) 4px),
+      radial-gradient(ellipse at 50% 50%, rgba(0, 0, 0, 0) 55%, rgba(0, 0, 0, .55) 100%);
+    animation: crtdrift 7s ease-in-out infinite;   /* slow and gentle, never a strobe */
+  }
+  @keyframes crtdrift { 50% { opacity: .82; } }
+
+  [data-theme="arcade"] {
+    --paper: #b9fff0;
+    --accent: #ff2ea6;
+  }
+  [data-theme="arcade"] body { background: #05060a; }
+  [data-theme="arcade"] .hud,
+  [data-theme="arcade"] .screen,
+  [data-theme="arcade"] .banner {
+    font-family: ui-monospace, "Courier New", Courier, monospace;
+    text-transform: uppercase; letter-spacing: 2px;
+  }
+  [data-theme="arcade"] .pill {
+    border-radius: 0; border: 3px solid #21f5d3; background: rgba(0, 0, 0, .72);
+    backdrop-filter: none; -webkit-backdrop-filter: none;
+    box-shadow: 0 0 14px rgba(33, 245, 211, .45), inset 0 0 10px rgba(33, 245, 211, .12);
+  }
+  [data-theme="arcade"] .score { color: #ffe64d; text-shadow: 0 0 12px rgba(255, 230, 77, .8); }
+  [data-theme="arcade"] .timer { color: #21f5d3; text-shadow: 0 0 12px rgba(33, 245, 211, .8); }
+  [data-theme="arcade"] .timer.low { color: #ff3b6b; border-color: #ff3b6b; }
+  [data-theme="arcade"] .hearts { color: #ff3b6b; text-shadow: 0 0 10px rgba(255, 59, 107, .8); }
+  [data-theme="arcade"] .power { color: #7cf; }
+  [data-theme="arcade"] .power.ready {
+    background: #ffe64d; color: #05060a; border-color: #ffe64d;
+    box-shadow: 0 0 18px rgba(255, 230, 77, .8);
+  }
+  [data-theme="arcade"] .bar { border-radius: 0; background: rgba(33, 245, 211, .18); }
+  [data-theme="arcade"] .bar i { border-radius: 0; background: #21f5d3; }
+  [data-theme="arcade"] .combo { color: #ff2ea6; text-shadow: 0 0 14px rgba(255, 46, 166, .9); }
+
+  [data-theme="arcade"] button.ctl,
+  [data-theme="arcade"] .toggle,
+  [data-theme="arcade"] .ghost,
+  [data-theme="arcade"] .danger {
+    border-radius: 0; border: 2px solid #21f5d3; background: rgba(0, 0, 0, .7);
+    color: #21f5d3; text-transform: uppercase; letter-spacing: 1.5px;
+    font-family: ui-monospace, "Courier New", Courier, monospace;
+  }
+  [data-theme="arcade"] button.ctl:hover,
+  [data-theme="arcade"] .ghost:hover { background: #21f5d3; color: #05060a; }
+  [data-theme="arcade"] .toggle[aria-pressed="true"] { background: #ff2ea6; border-color: #ff2ea6; color: #fff; }
+  [data-theme="arcade"] .danger { border-color: #ff3b6b; color: #ff3b6b; }
+
+  [data-theme="arcade"] .screen {
+    background:
+      repeating-linear-gradient(to right, rgba(33, 245, 211, .05) 0 1px, transparent 1px 44px),
+      repeating-linear-gradient(to bottom, rgba(33, 245, 211, .05) 0 1px, transparent 1px 44px),
+      #05060a;
+  }
+  [data-theme="arcade"] h1 {
+    background: none; -webkit-background-clip: border-box; background-clip: border-box;
+    color: #ffe64d;
+    text-shadow: 3px 0 0 #ff2ea6, -3px 0 0 #21f5d3, 0 0 22px rgba(255, 230, 77, .55);
+  }
+  [data-theme="arcade"] h2 { color: #21f5d3; opacity: .8; }
+  [data-theme="arcade"] .tag,
+  [data-theme="arcade"] .rules li { color: #b9fff0; }
+  [data-theme="arcade"] .rules em { color: #6fd9c6; opacity: 1; }
+  [data-theme="arcade"] .rules li { border-bottom-color: rgba(33, 245, 211, .18); }
+  [data-theme="arcade"] .big {
+    border-radius: 0; background: #ffe64d; color: #05060a;
+    border: 3px solid #ffe64d; box-shadow: 0 0 24px rgba(255, 230, 77, .5);
+    font-family: ui-monospace, "Courier New", Courier, monospace;
+    text-transform: uppercase; letter-spacing: 2px;
+  }
+  [data-theme="arcade"] .alt { color: #21f5d3; }
+  [data-theme="arcade"] #nameInput {
+    border-radius: 0; border-color: #21f5d3; color: #ffe64d;
+    font-family: ui-monospace, "Courier New", Courier, monospace;
+    text-transform: uppercase; letter-spacing: 3px;
+  }
+  [data-theme="arcade"] .board td { border-bottom-color: rgba(33, 245, 211, .18); }
+  [data-theme="arcade"] .board tr.you .who,
+  [data-theme="arcade"] .board tr.you .pts,
+  [data-theme="arcade"] .board tr.you .rank { color: #ffe64d; }
+  [data-theme="arcade"] .board { font-family: ui-monospace, "Courier New", Courier, monospace; }
+  [data-theme="arcade"] .banner b {
+    background: none; -webkit-background-clip: border-box; background-clip: border-box;
+    color: #ffe64d; filter: none;
+    text-shadow: 4px 0 0 #ff2ea6, -4px 0 0 #21f5d3, 0 0 26px rgba(255, 230, 77, .6);
+  }
+  [data-theme="arcade"] .banner span { color: #21f5d3; }
+
+  /* ---------------------------------------------------------------- modals */
+  .screen {
+    position: fixed; inset: 0; z-index: 10; padding: 24px;
+    display: flex; align-items: center; justify-content: center; text-align: center;
+    overflow-y: auto;
+    background: radial-gradient(circle at 50% 30%, #21306a 0%, #0b1020 70%);
+  }
+  .screen[hidden] { display: none; }
+  .card { width: 100%; max-width: 470px; margin: auto; padding: 8px 0 20px; }
+  h1 {
+    font-size: clamp(36px, 10vw, 68px); margin: 0 0 6px; font-weight: 800; line-height: .95;
+    background: linear-gradient(100deg, #7ee8ff, #ff4fa3 55%, #ffe27a);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .tag { font-size: clamp(15px, 3.6vw, 19px); opacity: .8; margin: 0 0 22px; line-height: 1.5; }
+  h2 {
+    font-size: 12px; font-weight: 800; letter-spacing: 2px; opacity: .5;
+    margin: 26px 0 12px; text-align: left;
+  }
+
+  .langpick { display: flex; gap: 10px; justify-content: center; margin-bottom: 26px; }
+  .lang {
+    cursor: pointer; font: inherit; font-weight: 700; font-size: 15px;
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 20px; border-radius: 999px;
+    border: 2px solid rgba(255, 255, 255, .25);
+    background: rgba(255, 255, 255, .06); color: var(--paper);
+  }
+  .lang b { font-size: 20px; line-height: 1; }
+  .lang[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  [data-theme="arcade"] .lang {
+    border-radius: 0; border-color: #21f5d3; color: #21f5d3;
+    font-family: ui-monospace, "Courier New", Courier, monospace;
+    text-transform: uppercase; letter-spacing: 1.5px;
+  }
+  [data-theme="arcade"] .lang[aria-pressed="true"] { background: #ff2ea6; border-color: #ff2ea6; color: #fff; }
+
+  .howto { margin: 0 0 26px; text-align: left; }
+  .howto summary {
+    cursor: pointer; list-style: none; text-align: center;
+    font-size: 15px; font-weight: 700; color: #9fb6e8;
+    padding: 11px 18px; border-radius: 999px;
+    border: 2px solid rgba(255, 255, 255, .16);
+  }
+  .howto summary::-webkit-details-marker { display: none; }
+  .howto summary::after { content: ' ▾'; opacity: .7; }
+  .howto[open] summary::after { content: ' ▴'; }
+  .howto summary:hover { background: rgba(255, 255, 255, .07); color: var(--paper); }
+  .howto[open] summary { margin-bottom: 4px; }
+  [data-theme="arcade"] .howto summary {
+    border-radius: 0; border-color: #21f5d3; color: #21f5d3;
+    font-family: ui-monospace, "Courier New", Courier, monospace;
+    text-transform: uppercase; letter-spacing: 1.5px;
+  }
+
+  .rules { list-style: none; margin: 14px 0 0; padding: 0; text-align: left; }
+  .rules li {
+    display: flex; gap: 13px; align-items: flex-start;
+    padding: 9px 0; font-size: 16px; line-height: 1.45;
+    border-bottom: 1px solid rgba(255, 255, 255, .08);
+  }
+  .rules li:last-child { border-bottom: none; }
+  .rules b { font-size: 22px; line-height: 1.2; width: 28px; flex: none; text-align: center; }
+  .rules em { font-style: normal; opacity: .62; }
+
+  .big {
+    cursor: pointer; font: inherit; font-weight: 800; font-size: clamp(19px, 4.6vw, 24px);
+    padding: 16px 38px; border-radius: 999px; border: none; color: #16062a;
+    background: linear-gradient(100deg, #7ee8ff, #ff9ad0 60%, #ffe27a);
+    box-shadow: 0 10px 30px rgba(255, 79, 163, .35);
+  }
+  .big:hover { filter: brightness(1.07); }
+  .big.small { font-size: 16px; padding: 13px 22px; white-space: nowrap; box-shadow: none; }
+  .alt {
+    display: block; margin: 16px auto 0; background: none; border: none; cursor: pointer;
+    color: #9fb6e8; font: inherit; font-size: 15px; text-decoration: underline; text-underline-offset: 3px;
+  }
+  .note { margin-top: 22px; font-size: 13px; opacity: .55; line-height: 1.6; }
+  .err {
+    margin-top: 18px; font-size: 14px; line-height: 1.5; color: #ffc7d9;
+    background: rgba(255, 79, 163, .12); border: 1px solid rgba(255, 79, 163, .35);
+    border-radius: 14px; padding: 12px 16px;
+  }
+  .err[hidden] { display: none; }
+
+  /* ---------------------------------------------------------------- settings */
+  .row {
+    display: flex; align-items: center; justify-content: space-between; gap: 14px;
+    padding: 13px 0; border-bottom: 1px solid rgba(255, 255, 255, .1); text-align: left;
+  }
+  .row:last-of-type { border-bottom: none; }
+  .row label { font-weight: 700; font-size: 16px; }
+  .row .sub { display: block; font-weight: 600; font-size: 12.5px; opacity: .5; margin-top: 3px; line-height: 1.4; }
+  .row input[type=range] { width: 150px; flex: none; accent-color: var(--accent); }
+  .val { font-variant-numeric: tabular-nums; font-weight: 800; min-width: 3.6em; text-align: right; }
+
+  .toggle {
+    cursor: pointer; flex: none; border: 2px solid rgba(255, 255, 255, .25);
+    background: rgba(255, 255, 255, .07); color: var(--paper);
+    font: inherit; font-weight: 800; font-size: 14px;
+    border-radius: 999px; padding: 8px 20px; min-width: 74px;
+  }
+  .toggle[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  .danger {
+    cursor: pointer; font: inherit; font-weight: 700; font-size: 14px;
+    background: rgba(255, 79, 163, .12); color: #ffc7d9;
+    border: 1px solid rgba(255, 79, 163, .4); border-radius: 999px; padding: 8px 18px;
+  }
+  .danger:hover { background: rgba(255, 79, 163, .24); }
+  .filerow { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; }
+  .ghost {
+    cursor: pointer; font: inherit; font-weight: 700; font-size: 14px;
+    background: rgba(255, 255, 255, .08); color: var(--paper);
+    border: 1px solid rgba(255, 255, 255, .25); border-radius: 999px; padding: 8px 18px;
+  }
+  .ghost:hover { background: rgba(255, 255, 255, .18); }
+  .said { font-size: 13px; opacity: .7; margin: 10px 0 0; min-height: 1.2em; }
+
+  /* ---------------------------------------------------------------- leaderboard */
+  .namebox { display: flex; gap: 10px; justify-content: center; margin-bottom: 22px; }
+  .namebox[hidden] { display: none; }
+  #nameInput {
+    flex: 1; min-width: 0;
+    font: inherit; font-size: 18px; font-weight: 700; color: var(--paper);
+    background: rgba(255, 255, 255, .1); border: 2px solid rgba(255, 255, 255, .3);
+    border-radius: 999px; padding: 13px 20px; text-align: center;
+  }
+  #nameInput:focus { outline: none; border-color: var(--accent); background: rgba(255, 255, 255, .16); }
+  #nameInput::placeholder { color: rgba(255, 255, 255, .4); font-weight: 600; }
+
+  .board { width: 100%; border-collapse: collapse; margin: 0 0 26px; font-size: 16px; }
+  .board:empty { display: none; }
+  .board td { padding: 7px 6px; border-bottom: 1px solid rgba(255, 255, 255, .1); }
+  .board tr:last-child td { border-bottom: none; }
+  .board .rank { width: 2.2em; opacity: .5; font-weight: 700; text-align: left; }
+  .board .who { text-align: left; font-weight: 700; overflow-wrap: anywhere; }
+  .board .lvl { text-align: right; opacity: .5; font-size: 13px; white-space: nowrap; }
+  .board .pts { text-align: right; font-weight: 800; width: 4.5em; }
+  .board tr.you .who, .board tr.you .pts, .board tr.you .rank { color: #ffe27a; }
+  .board tr.you .rank { opacity: .9; }
+</style>
+</head>
+<body>
+
+<canvas id="game"></canvas>
+<div class="flash" id="flash"></div>
+<div class="crt" id="crt" aria-hidden="true"></div>
+
+<div class="hud">
+  <div>
+    <div class="hud-row">
+      <div class="pstack" id="stack0">
+        <div class="pill who" id="who0" hidden>P1</div>
+        <div class="pill score"><span id="score">0</span><small id="scoreLabel">SCORE</small></div>
+        <div class="pill hearts" id="hearts">♥♥♥♥♥</div>
+        <div class="pill power" id="power">⚡ 0/500</div>
+        <div class="combo" id="combo"></div>
+      </div>
+      <div class="rightstack">
+        <div class="pill timer" id="timer">1:05</div>
+        <div class="pill level"><span id="levelLabel">LEVEL</span> <span id="level">1</span><div class="bar"><i id="bar"></i></div></div>
+      </div>
+      <div class="pstack mirror" id="stack1" hidden>
+        <div class="pill who" id="who1">P2</div>
+        <div class="pill score"><span id="score1">0</span><small id="scoreLabel1">SCORE</small></div>
+        <div class="pill hearts" id="hearts1">♥♥♥♥♥</div>
+        <div class="pill power" id="power1">⚡ 0/500</div>
+        <div class="combo" id="combo1"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="hud-row">
+    <div class="controls">
+      <button class="ctl" id="btnSettings">⚙ <span id="lblSettings">Settings</span></button>
+      <button class="ctl" id="btnReset">↻ <span id="lblRestart">Restart</span></button>
+    </div>
+  </div>
+</div>
+
+<div class="banner" id="banner"><div><b id="bannerBig"></b><span id="bannerSub"></span></div></div>
+
+<!-- ------------------------------------------------------------- how to play -->
+<div class="screen" id="startScreen">
+  <div class="card">
+    <div class="langpick">
+      <button class="lang" id="langEn" aria-pressed="true"><b>🇬🇧</b> English</button>
+      <button class="lang" id="langSv" aria-pressed="false"><b>🇸🇪</b> Svenska</button>
+    </div>
+
+    <h1>Bubble Poke</h1>
+    <p class="tag" id="startTag"></p>
+
+    <div class="langpick">
+      <button class="lang" id="p1btn" aria-pressed="true"><b>👤</b> <span id="p1lbl">1 player</span></button>
+      <button class="lang" id="p2btn" aria-pressed="false"><b>👥</b> <span id="p2lbl">2 players</span></button>
+    </div>
+
+    <details class="howto" id="howto">
+      <summary id="howtoLabel">How to play</summary>
+      <ul class="rules" id="rules"></ul>
+    </details>
+
+    <button class="big" id="btnStart"></button>
+    <button class="alt" id="btnNoCam"></button>
+    <button class="alt" id="btnSettings2"></button>
+    <div class="err" id="err" hidden></div>
+    <p class="note" id="privacy"></p>
+  </div>
+</div>
+
+<!-- ------------------------------------------------------------- game over -->
+<div class="screen" id="overScreen" hidden>
+  <div class="card">
+    <h1 id="overTitle">Game Over</h1>
+    <p class="tag" id="overLine">You scored 0</p>
+
+    <form id="nameForm" class="namebox">
+      <input id="nameInput" type="text" maxlength="24" placeholder="Your name" autocomplete="off" spellcheck="false">
+      <input id="nameInput2" type="text" maxlength="24" placeholder="Player 2" autocomplete="off" spellcheck="false" hidden>
+      <button class="big small" type="submit" id="btnSaveScore">Save score</button>
+    </form>
+
+    <table class="board" id="board"></table>
+    <button class="big" id="btnAgain">Play again</button>
+    <button class="alt" id="btnSettings3">Settings</button>
+    <p class="note" id="overHint"></p>
+  </div>
+</div>
+
+<!-- ------------------------------------------------------------- settings -->
+<div class="screen" id="setScreen" hidden>
+  <div class="card">
+    <h1>Settings</h1>
+    <p class="tag" id="setPaused">&nbsp;</p>
+
+    <h2 id="h2lang">LANGUAGE</h2>
+    <div class="row">
+      <label id="lblLang">Instructions
+        <span class="sub" id="langSub">Språk för instruktioner och knappar.</span>
+      </label>
+      <div class="filerow">
+        <button class="toggle" id="setLangEn" aria-pressed="true">English</button>
+        <button class="toggle" id="setLangSv" aria-pressed="false">Svenska</button>
+      </div>
+    </div>
+
+    <h2 id="h2look">LOOK</h2>
+    <div class="row">
+      <label id="lblStyle">Style
+        <span class="sub" id="themeSub">Modern — soft colours and glassy panels.</span>
+      </label>
+      <div class="filerow">
+        <button class="toggle" id="btnModern" aria-pressed="true">Modern</button>
+        <button class="toggle" id="btnArcade" aria-pressed="false">Arcade</button>
+      </div>
+    </div>
+
+    <h2 id="h2game">GAME</h2>
+    <div class="row">
+      <label for="lenInput" id="lblLen">Game length
+        <span class="sub">A new, harder level every 20 seconds.</span>
+      </label>
+      <input id="lenInput" type="range" min="20" max="300" step="5" value="65">
+      <span class="val" id="lenVal">1:30</span>
+    </div>
+    <div class="row">
+      <label for="powerInput" id="lblPower">Disco ball every
+        <span class="sub">Points you must earn to charge the super power.</span>
+      </label>
+      <input id="powerInput" type="range" min="100" max="2000" step="50" value="500">
+      <span class="val" id="powerVal">500</span>
+    </div>
+    <div class="row">
+      <label for="sensInput" id="lblPoke">Poke sensitivity
+        <span class="sub">Left if bubbles pop by themselves, right if you have to flail.</span>
+      </label>
+      <input id="sensInput" type="range" min="4" max="60" value="30">
+      <span class="val" id="sensVal">30</span>
+    </div>
+    <div class="row">
+      <label id="lblSound">Sound<span class="sub">Pops, fanfares and the phoenix.</span></label>
+      <button class="toggle" id="btnSound" aria-pressed="true">On</button>
+    </div>
+    <div class="row">
+      <label id="lblMotion">Motion view<span class="sub">Shows what the camera thinks is moving.</span></label>
+      <button class="toggle" id="btnDebug" aria-pressed="false">Off</button>
+    </div>
+
+    <h2 id="h2clap">CLAPPING</h2>
+    <div class="row">
+      <label id="lblClapOn">Clap to set off the disco ball
+        <span class="sub" id="micState">Microphone not enabled yet.</span>
+      </label>
+      <button class="toggle" id="btnClap" aria-pressed="false">Off</button>
+    </div>
+    <div class="row">
+      <label id="lblClapLoud">How loud is a clap
+        <span class="sub">Clap now — the bar shows what the microphone hears. Put the marker just under your clap.</span>
+      </label>
+      <div class="meter" id="meter">
+        <div class="track"><i id="meterFill"></i></div>
+        <div class="mark"><span id="meterMark"></span></div>
+      </div>
+    </div>
+    <div class="row">
+      <label for="clapInput" id="lblClapThr">Clap threshold<span class="sub">Lower if claps are missed, higher if the game fires by itself.</span></label>
+      <input id="clapInput" type="range" min="4" max="60" value="18">
+      <span class="val" id="clapVal">18</span>
+    </div>
+
+    <h2 id="h2board">LEADERBOARD</h2>
+    <div class="row">
+      <label id="lblSaved">Saved in this browser
+        <span class="sub" id="boardCount">No scores yet.</span>
+      </label>
+      <div class="filerow">
+        <button class="ghost" id="btnExport">Export</button>
+        <button class="ghost" id="btnImport">Import</button>
+      </div>
+    </div>
+    <div class="row">
+      <label id="lblClear">Clear leaderboard<span class="sub">Also resets the best score. This cannot be undone.</span></label>
+      <button class="danger" id="btnClearBoard">Clear</button>
+    </div>
+    <p class="said" id="setSaid"></p>
+    <input id="importFile" type="file" accept="application/json,.json" hidden>
+
+    <button class="big" id="btnCloseSet" style="margin-top:26px">Done</button>
+  </div>
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  const $ = id => document.getElementById(id);
+  const canvas = $('game'), ctx = canvas.getContext('2d');
+  const scoreEl = $('score'), heartsEl = $('hearts'), timerEl = $('timer');
+  const levelEl = $('level'), barEl = $('bar'), comboEl = $('combo');
+  const bannerEl = $('banner'), bannerBig = $('bannerBig'), bannerSub = $('bannerSub');
+  const flashEl = $('flash'), errBox = $('err');
+  const startScreen = $('startScreen'), overScreen = $('overScreen'), setScreen = $('setScreen');
+  const overTitle = $('overTitle'), overLine = $('overLine');
+  const nameForm = $('nameForm'), nameInput = $('nameInput'), boardEl = $('board');
+  const nameInput2 = $('nameInput2');
+  const lenInput = $('lenInput'), lenVal = $('lenVal');
+  const sensInput = $('sensInput'), sensVal = $('sensVal');
+  const btnSound = $('btnSound'), btnDebug = $('btnDebug');
+  const setSaid = $('setSaid'), setPaused = $('setPaused'), boardCount = $('boardCount');
+  const powerEl = $('power'), powerInput = $('powerInput'), powerVal = $('powerVal');
+  const clapInput = $('clapInput'), clapVal = $('clapVal'), btnClap = $('btnClap');
+  const micState = $('micState'), meterEl = $('meter'), meterFill = $('meterFill'), meterMark = $('meterMark');
+
+  // ---------------------------------------------------------------- tuning
+  const LEVEL_SECONDS = 13;               // a harder level this often
+  const LEVEL_MS = LEVEL_SECONDS * 1000;
+  // On top of the level steps the whole game accelerates continuously, so the
+  // speed-up is felt every second rather than only at the level boundaries.
+  const TEMPO_PER_SEC = 0.013;
+  const TEMPO_MAX = 2.1;
+  const MIN_CROSS_SEC = 1.15;             // fastest a bubble may cross the screen
+  const MAX_LIVES = 5;
+  const BURN = 75;                        // points lost to the phoenix
+  const DISCO_MS = 1500;                  // how long the disco ball stays up
+  const BEAM_EVERY = 105;                 // ms between laser beams
+  const BEAM_LIFE = 260;                  // ms a beam stays visible
+  const MAX_CHARGES = 3;
+  const MW = 192, MH = 144;               // motion-detection resolution
+
+  // Levels are generated, not listed — the game can be any length you like.
+  // Difficulty stops climbing at level 9: past that, bubbles cross the screen
+  // faster than anyone can react and a long game turns into noise.
+  const HARDEST = 8;
+  function levelCfg(n) {
+    const k = Math.min(n, HARDEST);
+    return {
+      speed:  1 + k * 0.55,
+      size:   Math.max(0.58, 1 - k * 0.10),
+      gap:    Math.max(260, 880 - k * 150),          // ms between spawns
+      max:    Math.min(20, 12 + k * 2),              // bubbles on screen
+      golden: Math.min(0.16, 0.08 + k * 0.015),
+      dirs:   n === 0 ? ['up'] : n === 1 ? ['up', 'left', 'right'] : ['up', 'down', 'left', 'right'],
+      phoenixGap: Math.max(3800, 10000 - k * 900),   // ms between phoenixes
+      sub:    t('lvlSub' + Math.min(n, 3))
+    };
+  }
+
+  // How much faster everything is than at the first whistle.
+  const tempo = () => running
+    ? Math.min(TEMPO_MAX, 1 + ((performance.now() - startedAt) / 1000) * TEMPO_PER_SEC)
+    : 1;
+
+  // ---------------------------------------------------------------- state
+  const motionCanvas = document.createElement('canvas');
+  motionCanvas.width = MW; motionCanvas.height = MH;
+  const mctx = motionCanvas.getContext('2d', { willReadFrequently: true });
+
+  const video = document.createElement('video');
+  video.playsInline = true; video.muted = true;
+
+  let W = 0, H = 0, dpr = 1;
+  let stream = null, camReady = false;
+  let grayA = new Uint8Array(MW * MH), grayB = new Uint8Array(MW * MH);
+  let havePrev = false;
+  const mask = new Uint8Array(MW * MH);
+  let globalMotion = 0;
+
+  const bubbles = [], birds = [], bits = [], pops = [], trail = [];
+  let level = 0;
+
+  // One entry per player. In two-player mode the screen is split down the
+  // middle and each half is its own self-contained playfield: its own bubbles,
+  // own edges to escape past, own hearts, own disco charges.
+  let players = 1;
+  const P = [];
+  function makePlayers(n) {
+    P.length = 0;
+    for (let i = 0; i < n; i++) {
+      P.push({
+        i, score: 0, earned: 0, charges: 0, nextCharge: powerEvery,
+        lives: MAX_LIVES, combo: 0, comboUntil: 0, out: false,
+        disco: { until: 0, lastBeam: 0, beams: [] },
+        el: {
+          score: $(i ? 'score1' : 'score'), hearts: $(i ? 'hearts1' : 'hearts'),
+          power: $(i ? 'power1' : 'power'), combo: $(i ? 'combo1' : 'combo'),
+          stack: $('stack' + i)
+        }
+      });
+    }
+  }
+  // Left half, right half — or the whole screen with one player.
+  const bounds = i => players === 1
+    ? { x0: 0, x1: W, cx: W / 2 }
+    : { x0: i * W / 2, x1: (i + 1) * W / 2, cx: (i + 0.5) * W / 2 };
+  let running = false, paused = false;
+  let startedAt = 0, endsAt = 0, lastT = 0, lastSpawn = 0, lastBird = 0;
+  let bannerUntil = 0, shownSec = -1, shakeUntil = 0;
+
+  // super power: earn a charge every `powerEvery` points, spend it with a clap
+
+
+  // ---------------------------------------------------------------- settings
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : v; } catch { return d; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+    del(k) { try { localStorage.removeItem(k); } catch {} }
+  };
+
+  // Settings persist, so a returning player keeps whatever length they last had —
+  // which means a new default never reaches them. Bump this when a default must
+  // actually take effect, and only overwrite the one key it concerns.
+  const SETTINGS_V = '2';
+  if (store.get('bubblepoke.v', '1') !== SETTINGS_V) {
+    store.set('bubblepoke.len', 65);
+    store.set('bubblepoke.v', SETTINGS_V);
+  }
+
+  let gameSeconds = Math.min(300, Math.max(20, Number(store.get('bubblepoke.len', 65)) || 65));
+  let soundOn = store.get('bubblepoke.sound', '1') === '1';
+  let debugOn = store.get('bubblepoke.debug', '0') === '1';
+  let best = Number(store.get('bubblepoke.best', 0)) || 0;
+  let powerEvery = Math.min(2000, Math.max(100, Number(store.get('bubblepoke.power', 500)) || 500));
+  let clapOn = store.get('bubblepoke.clap', '0') === '1';
+  let theme = store.get('bubblepoke.theme', 'modern') === 'arcade' ? 'arcade' : 'modern';
+  const arcade = () => theme === 'arcade';
+
+  // Neon phosphors only — an arcade monitor could not show a pastel.
+  const ARCADE_HUES = [180, 300, 60, 120, 200, 330];
+
+
+  // Paints every fixed string on the page. Called on load and whenever the
+  // language changes, so the two tables can never drift apart on screen.
+  function applyLang() {
+    store.set('bubblepoke.lang', lang);
+    document.documentElement.lang = lang;
+
+    $('langEn').setAttribute('aria-pressed', String(lang === 'en'));
+    $('langSv').setAttribute('aria-pressed', String(lang === 'sv'));
+    $('setLangEn').setAttribute('aria-pressed', String(lang === 'en'));
+    $('setLangSv').setAttribute('aria-pressed', String(lang === 'sv'));
+
+    $('startTag').innerHTML = t('tag');
+    $('privacy').innerHTML = t('privacy');
+    $('btnStart').textContent = t('start');
+    $('btnNoCam').textContent = t('nocam');
+    $('btnSettings2').textContent = t('settings');
+    $('btnSettings3').textContent = t('settings');
+    $('lblSettings').textContent = t('settings');
+    $('lblRestart').textContent = t('restart');
+    $('btnCloseSet').textContent = t('done');
+    $('scoreLabel').textContent = t('score');
+    $('levelLabel').textContent = t('levelLbl');
+    $('btnSaveScore').textContent = t('saveScore');
+    $('btnAgain').textContent = t('again');
+    $('overHint').textContent = t('overHint');
+    nameInput.placeholder = t('yourName');
+    $('howtoLabel').textContent = t('howto');
+    $('p1lbl').textContent = t('p1');
+    $('p2lbl').textContent = t('p2');
+    $('who0').textContent = t('nameP', 1);
+    $('who1').textContent = t('nameP', 2);
+
+    $('h2lang').textContent = t('hLang');
+    $('h2look').textContent = t('hLook');
+    $('h2game').textContent = t('hGame');
+    $('h2clap').textContent = t('hClap');
+    $('h2board').textContent = t('hBoard');
+    $('btnExport').textContent = t('export');
+    $('btnImport').textContent = t('import');
+    $('btnClearBoard').textContent = t('clear');
+
+    const lbl = (id, text, sub) => {
+      const el = $(id);
+      const subEl = el.querySelector('.sub');
+      el.firstChild.nodeValue = text;
+      if (subEl && sub !== undefined) subEl.textContent = sub;
+    };
+    lbl('lblLang', t('sLang'), t('sLangSub'));
+    lbl('lblStyle', t('sStyle'));
+    lbl('lblLen', t('sLen'), t('sLenSub', LEVEL_SECONDS));
+    lbl('lblPower', t('sPower'), t('sPowerSub'));
+    lbl('lblPoke', t('sPoke'), t('sPokeSub'));
+    lbl('lblSound', t('sSound'), t('sSoundSub'));
+    lbl('lblMotion', t('sMotion'), t('sMotionSub'));
+    lbl('lblClapOn', t('sClapOn'));
+    lbl('lblClapLoud', t('sClapLoud'), t('sClapLoudSub'));
+    lbl('lblClapThr', t('sClapThr'), t('sClapThrSub'));
+    lbl('lblSaved', t('sSaved'));
+    lbl('lblClear', t('sClear'), t('sClearSub'));
+
+    renderRules();
+    syncSettingsUi();
+    updatePowerHud();
+  }
+
+  function renderRules() {
+    const items = [
+      ['🫧', t('r1'), t('r1e')],
+      ['⭐', t('r2'), t('r2e')],
+      ['🔥', t('r3'), t('r3e')],
+      ['🪩', t('r4', powerEvery), t('r4e')],
+      ['♥', t('r5'), t('r5e')],
+      ['⏱', t('r6', humanTime(gameSeconds), LEVEL_SECONDS), t('r6e', humanTime(gameSeconds), LEVEL_SECONDS)],
+      ['🏆', t('r7'), '']
+    ];
+    const ul = $('rules');
+    ul.textContent = '';
+    for (const [icon, text, em] of items) {
+      const li = document.createElement('li');
+      const b = document.createElement('b');
+      b.textContent = icon;
+      const div = document.createElement('div');
+      div.append(text + (em ? ' ' : ''));
+      if (em) {
+        const e = document.createElement('em');
+        e.textContent = em;
+        div.appendChild(e);
+      }
+      li.append(b, div);
+      ul.appendChild(li);
+    }
+  }
+
+  function applyTheme() {
+    document.documentElement.dataset.theme = theme;
+    store.set('bubblepoke.theme', theme);
+    $('btnModern').setAttribute('aria-pressed', String(!arcade()));
+    $('btnArcade').setAttribute('aria-pressed', String(arcade()));
+    $('themeSub').textContent = t(arcade() ? 'sStyleArcade' : 'sStyleModern');
+  }
+
+  sensInput.value = store.get('bubblepoke.sens', 30);
+  clapInput.value = store.get('bubblepoke.clapsens', 18);
+  powerInput.value = powerEvery;
+  lenInput.value = gameSeconds;
+
+
+  // ---------------------------------------------------------------- language
+  // {0}, {1}… are filled in by t(). Swedish is a first-class translation, not a
+  // veneer: every string a player sees in a game has one.
+  const STR = {
+    en: {
+      tag: 'Your camera becomes the game board.<br>Wave a hand at a bubble to pop it.',
+      r1: 'Pop bubbles for points.', r1e: 'Small ones are worth more than big ones.',
+      r2: 'Golden star bubbles are worth 50.', r2e: 'They fly faster, too.',
+      r3: 'From level 2 a phoenix swoops across.', r3e: "Don't touch it — it burns 75 points.",
+      r4: 'Every {0} points you earn a disco ball.', r4e: 'Clap once, loudly, and lasers pop bubbles for you.',
+      r5: 'Let five bubbles escape and the game ends early.', r5e: 'Each new level gives one heart back.',
+      r6: '{0}, getting faster and faster.', r6e: 'A harder level every {1} seconds. Change the length in Settings.',
+      r7: 'Add your name to the leaderboard when the game ends.',
+      start: 'Turn on camera', nocam: 'No camera — play with the mouse',
+      settings: 'Settings', restart: 'Restart', done: 'Done',
+      privacy: 'Your camera feed never leaves this computer.<br>Nothing is recorded, uploaded, or saved.',
+      score: 'SCORE', levelLbl: 'LEVEL', level: 'Level {0}',
+      lvlSub0: 'Bubbles float up from below',
+      lvlSub1: 'Sides open up — and the phoenix wakes',
+      lvlSub2: 'From every direction now',
+      lvlSub3: 'Faster. Smaller. Good luck.',
+      combo: '{0} in a row! ×{1}',
+      discoBall: 'Disco ball!', clapNow: 'Clap once, loudly', pressSpace: 'Press the space bar',
+      clapPill: '⚡ CLAP!', spacePill: '⚡ SPACE!',
+      over: 'Game Over', newBest: 'New best!',
+      outOfTime: 'Time! You reached level {0}.', outOfLives: 'Five bubbles got away on level {0}.',
+      scored: 'You scored {0}.', yourName: 'Your name', saveScore: 'Save score', again: 'Play again',
+      lvlShort: 'lvl {0}', howto: 'How to play', p1: '1 player', p2: '2 players',
+      playerWins: 'Player {0} wins!', draw: "It's a draw!", finalScores: 'Player 1: {0}   ·   Player 2: {1}',
+      nameP: 'Player {0}', sPlayers: 'Players', sPlayersSub: 'Two players split the screen, each with their own bubbles.', overHint: 'Settings has the language, the game length and the disco ball.',
+      hLang: 'LANGUAGE', hLook: 'LOOK', hGame: 'GAME', hClap: 'CLAPPING', hBoard: 'LEADERBOARD',
+      sLang: 'Instructions', sLangSub: 'Language for the instructions and buttons.',
+      sStyle: 'Style', sStyleModern: 'Modern — soft colours and glassy panels.',
+      sStyleArcade: 'Arcade — neon phosphors, scanlines and bleepy sound.',
+      sLen: 'Game length', sLenSub: 'A harder level every {0} seconds, and it speeds up all the way through.',
+      sPower: 'Disco ball every', sPowerSub: 'Points you must earn to charge the super power.',
+      sPoke: 'Poke sensitivity', sPokeSub: 'Left if bubbles pop by themselves, right if you have to flail.',
+      sSound: 'Sound', sSoundSub: 'Pops, fanfares and the phoenix.',
+      sMotion: 'Motion view', sMotionSub: 'Shows what the camera thinks is moving.',
+      sClapOn: 'Clap to set off the disco ball',
+      sClapLoud: 'How loud is a clap',
+      sClapLoudSub: 'Clap now — the bar shows what the microphone hears. Put the marker just under your clap.',
+      sClapThr: 'Clap threshold', sClapThrSub: 'Lower if claps are missed, higher if the game fires by itself.',
+      sSaved: 'Saved in this browser', sClear: 'Clear leaderboard',
+      sClearSub: 'Also resets the best score. This cannot be undone.',
+      on: 'On', off: 'Off', export: 'Export', import: 'Import', clear: 'Clear',
+      boardEmpty: 'No scores yet. They save in this browser as you play.',
+      boardCount: '{0} scores saved in this browser. Export makes a file you can keep.',
+      boardCount1: '1 score saved in this browser. Export makes a file you can keep.',
+      paused: 'Game paused.',
+      micOff: 'Off — the space bar sets off the disco ball instead.',
+      micOn: 'Microphone on. Clap once to set off the disco ball.',
+      micWait: 'Turning the microphone on…',
+      micDenied: 'Microphone permission denied. Allow it in the address bar and try again.',
+      micBusy: 'Could not open the microphone: {0}',
+      micNone: 'This browser will not share a microphone with the page.',
+      clapStaysOff: 'Clapping stays off — the space bar still works.',
+      camNone: 'This browser will not share a camera with the page. Chrome, Safari or Firefox over http://localhost all work.',
+      camDenied: 'Camera permission was denied. Allow it in the address bar, then press the button again.',
+      camMissing: 'No camera found on this computer.',
+      camBusy: 'The camera is busy in another app (Zoom, Photo Booth…). Close it and try again.',
+      camFail: 'Could not open the camera: {0}',
+      seconds: '{0} seconds', minutes: '{0} minutes', minsec: '{0} min {1} sec',
+      lenSaid: '{0} — that’s {1} levels.', lenSaidLater: '{0} — takes effect next game ({1} levels).',
+      powerSaid: 'A disco ball every {0} points.', powerSaidLater: 'A disco ball every {0} points — takes effect next game.',
+      cleared: 'Leaderboard cleared.', exported: 'Saved as bubble-poke-leaderboard.json.',
+      nothingExport: 'Nothing to export yet.',
+      imported: 'Imported {0} scores.', importedNone: 'Imported {0} scores — none were new.',
+      importEmpty: 'No scores found in that file.', importBad: 'That file could not be read as a leaderboard.'
+    },
+    sv: {
+      tag: 'Din kamera blir spelplanen.<br>Vifta med handen mot en bubbla så spricker den.',
+      r1: 'Spräck bubblor för poäng.', r1e: 'Små är värda mer än stora.',
+      r2: 'Gyllene stjärnbubblor är värda 50.', r2e: 'De flyger snabbare också.',
+      r3: 'Från nivå 2 sveper en fenix förbi.', r3e: 'Rör den inte — den bränner 75 poäng.',
+      r4: 'Var {0} poäng får du en discokula.', r4e: 'Klappa en gång, högt, så spräcker lasrar bubblor åt dig.',
+      r5: 'Om fem bubblor kommer undan tar spelet slut.', r5e: 'Varje ny nivå ger tillbaka ett hjärta.',
+      r6: '{0}, och det går fortare och fortare.', r6e: 'En svårare nivå var {1}:e sekund. Ändra längden i Inställningar.',
+      r7: 'Skriv in ditt namn på topplistan när spelet är slut.',
+      start: 'Slå på kameran', nocam: 'Ingen kamera — spela med musen',
+      settings: 'Inställningar', restart: 'Börja om', done: 'Klar',
+      privacy: 'Din kamerabild lämnar aldrig den här datorn.<br>Ingenting spelas in, laddas upp eller sparas.',
+      score: 'POÄNG', levelLbl: 'NIVÅ', level: 'Nivå {0}',
+      lvlSub0: 'Bubblor stiger underifrån',
+      lvlSub1: 'Sidorna öppnas — och fenixen vaknar',
+      lvlSub2: 'Från alla håll nu',
+      lvlSub3: 'Snabbare. Mindre. Lycka till.',
+      combo: '{0} i rad! ×{1}',
+      discoBall: 'Discokula!', clapNow: 'Klappa en gång, högt', pressSpace: 'Tryck på mellanslag',
+      clapPill: '⚡ KLAPPA!', spacePill: '⚡ MELLANSLAG!',
+      over: 'Spelet slut', newBest: 'Nytt rekord!',
+      outOfTime: 'Tiden är ute! Du nådde nivå {0}.', outOfLives: 'Fem bubblor kom undan på nivå {0}.',
+      scored: 'Du fick {0} poäng.', yourName: 'Ditt namn', saveScore: 'Spara poäng', again: 'Spela igen',
+      lvlShort: 'nivå {0}', howto: 'Så spelar du', p1: '1 spelare', p2: '2 spelare',
+      playerWins: 'Spelare {0} vinner!', draw: 'Oavgjort!', finalScores: 'Spelare 1: {0}   ·   Spelare 2: {1}',
+      nameP: 'Spelare {0}', sPlayers: 'Spelare', sPlayersSub: 'Två spelare delar skärmen, var och en med sina egna bubblor.', overHint: 'I Inställningar finns språket, speltiden och discokulan.',
+      hLang: 'SPRÅK', hLook: 'UTSEENDE', hGame: 'SPEL', hClap: 'KLAPPA', hBoard: 'TOPPLISTA',
+      sLang: 'Instruktioner', sLangSub: 'Språk för instruktioner och knappar.',
+      sStyle: 'Stil', sStyleModern: 'Modern — mjuka färger och glasiga rutor.',
+      sStyleArcade: 'Arkad — neon, rutlinjer och pipiga ljud.',
+      sLen: 'Speltid', sLenSub: 'En svårare nivå var {0}:e sekund, och det går fortare hela tiden.',
+      sPower: 'Discokula var', sPowerSub: 'Poäng du måste samla för att ladda superkraften.',
+      sPoke: 'Känslighet', sPokeSub: 'Åt vänster om bubblor spricker av sig själva, åt höger om du måste vifta vilt.',
+      sSound: 'Ljud', sSoundSub: 'Smällar, fanfarer och fenixen.',
+      sMotion: 'Rörelsevy', sMotionSub: 'Visar vad kameran tycker rör sig.',
+      sClapOn: 'Klappa för att starta discokulan',
+      sClapLoud: 'Hur högt är en klapp',
+      sClapLoudSub: 'Klappa nu — stapeln visar vad mikrofonen hör. Sätt markören strax under din klapp.',
+      sClapThr: 'Klappgräns', sClapThrSub: 'Lägre om klappar missas, högre om spelet startar av sig självt.',
+      sSaved: 'Sparad i den här webbläsaren', sClear: 'Rensa topplistan',
+      sClearSub: 'Nollställer även bästa poängen. Går inte att ångra.',
+      on: 'På', off: 'Av', export: 'Exportera', import: 'Importera', clear: 'Rensa',
+      boardEmpty: 'Inga poäng än. De sparas i den här webbläsaren när du spelar.',
+      boardCount: '{0} poäng sparade i den här webbläsaren. Exportera för att få en fil du kan behålla.',
+      boardCount1: '1 poäng sparad i den här webbläsaren. Exportera för att få en fil du kan behålla.',
+      paused: 'Spelet är pausat.',
+      micOff: 'Av — mellanslag startar discokulan i stället.',
+      micOn: 'Mikrofonen är på. Klappa en gång för att starta discokulan.',
+      micWait: 'Slår på mikrofonen…',
+      micDenied: 'Mikrofonen nekades. Tillåt den i adressfältet och försök igen.',
+      micBusy: 'Kunde inte öppna mikrofonen: {0}',
+      micNone: 'Den här webbläsaren delar inte mikrofonen med sidan.',
+      clapStaysOff: 'Klappa förblir av — mellanslag fungerar ändå.',
+      camNone: 'Den här webbläsaren delar inte kameran med sidan. Chrome, Safari eller Firefox via http://localhost fungerar.',
+      camDenied: 'Kameran nekades. Tillåt den i adressfältet och tryck på knappen igen.',
+      camMissing: 'Ingen kamera hittades på den här datorn.',
+      camBusy: 'Kameran används av ett annat program (Zoom, Photo Booth…). Stäng det och försök igen.',
+      camFail: 'Kunde inte öppna kameran: {0}',
+      seconds: '{0} sekunder', minutes: '{0} minuter', minsec: '{0} min {1} sek',
+      lenSaid: '{0} — det blir {1} nivåer.', lenSaidLater: '{0} — gäller nästa spel ({1} nivåer).',
+      powerSaid: 'En discokula var {0} poäng.', powerSaidLater: 'En discokula var {0} poäng — gäller nästa spel.',
+      cleared: 'Topplistan rensad.', exported: 'Sparad som bubble-poke-leaderboard.json.',
+      nothingExport: 'Inget att exportera än.',
+      imported: 'Importerade {0} poäng.', importedNone: 'Importerade {0} poäng — inga var nya.',
+      importEmpty: 'Inga poäng hittades i filen.', importBad: 'Filen gick inte att läsa som en topplista.'
+    }
+  };
+
+  let lang = store.get('bubblepoke.lang', 'en') === 'sv' ? 'sv' : 'en';
+  const t = (k, ...a) => (STR[lang][k] ?? STR.en[k] ?? k)
+    .replace(/\{(\d)\}/g, (m, i) => a[i] === undefined ? m : a[i]);
+
+  const mmss = s => Math.floor(s / 60) + ':' + String(Math.round(s) % 60).padStart(2, '0');
+  // "90 seconds" / "3 minutes" / "2 min 30 sec" — mmss is for clocks, this is for prose.
+  const humanTime = s => s < 120 ? t('seconds', s)
+                       : s % 60 === 0 ? t('minutes', s / 60)
+                       : t('minsec', Math.floor(s / 60), s % 60);
+
+  function syncSettingsUi() {
+    lenVal.textContent = mmss(Number(lenInput.value));
+    sensVal.textContent = sensInput.value;
+    btnSound.setAttribute('aria-pressed', String(soundOn));
+    btnSound.textContent = t(soundOn ? 'on' : 'off');
+    btnDebug.setAttribute('aria-pressed', String(debugOn));
+    btnDebug.textContent = t(debugOn ? 'on' : 'off');
+    powerVal.textContent = powerInput.value;
+    clapVal.textContent = clapInput.value;
+    btnClap.setAttribute('aria-pressed', String(clapOn));
+    btnClap.textContent = t(clapOn ? 'on' : 'off');
+    meterMark.style.left = (Number(clapInput.value) / 60 * 100) + '%';
+    if (!clapOn) micState.textContent = t('micOff');
+    else if (!analyser) micState.textContent = t('micWait');
+    const n = loadBoard().length;
+    boardCount.textContent = n ? t(n === 1 ? 'boardCount1' : 'boardCount', n) : t('boardEmpty');
+  }
+
+  // ---------------------------------------------------------------- sizing
+  function resize() {
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    W = window.innerWidth; H = window.innerHeight;
+    canvas.width = Math.round(W * dpr);
+    canvas.height = Math.round(H * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // ---------------------------------------------------------------- audio
+  let ac = null;
+  function audio() {
+    if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)();
+    if (ac.state === 'suspended') ac.resume();
+    return ac;
+  }
+  function tone(freq, at, dur, vol, type) {
+    if (!soundOn) return;
+    const a = audio(), t = a.currentTime + at;
+    const o = a.createOscillator(), g = a.createGain();
+    o.type = type || (arcade() ? 'square' : 'triangle');
+    o.frequency.setValueAtTime(freq, t);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + 0.015);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(a.destination);
+    o.start(t); o.stop(t + dur + 0.02);
+  }
+  function popSound(pitch) {
+    if (!soundOn) return;
+    const a = audio(), t = a.currentTime;
+    const osc = a.createOscillator(), g = a.createGain();
+    osc.type = arcade() ? 'square' : 'sine';        // chiptune blip vs. soft pop
+    osc.frequency.setValueAtTime(660 * pitch, t);
+    osc.frequency.exponentialRampToValueAtTime(150 * pitch, t + 0.11);
+    g.gain.setValueAtTime(0.28, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.13);
+    osc.connect(g).connect(a.destination);
+    osc.start(t); osc.stop(t + 0.14);
+
+    const len = Math.floor(a.sampleRate * 0.06);
+    const buf = a.createBuffer(1, len, a.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+    const src = a.createBufferSource(); src.buffer = buf;
+    const bp = a.createBiquadFilter(); bp.type = 'bandpass';
+    bp.frequency.value = 1800 * pitch; bp.Q.value = 1.1;
+    const ng = a.createGain(); ng.gain.value = 0.16;
+    src.connect(bp).connect(ng).connect(a.destination);
+    src.start(t);
+  }
+  function missSound() { tone(300, 0, 0.16, 0.2, 'sawtooth'); tone(190, 0.09, 0.22, 0.18, 'sawtooth'); }
+  function fanfare() { [523, 659, 784, 1047].forEach((f, i) => tone(f, i * 0.09, 0.3, 0.22)); }
+  function sadTrombone() { [392, 349, 311, 262].forEach((f, i) => tone(f, i * 0.16, 0.45, 0.22, 'sawtooth')); }
+  function screech() {
+    if (!soundOn) return;
+    const a = audio(), t = a.currentTime;
+    const o = a.createOscillator(), g = a.createGain();
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(1500, t);
+    o.frequency.exponentialRampToValueAtTime(320, t + 0.32);
+    g.gain.setValueAtTime(0.22, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.36);
+    o.connect(g).connect(a.destination);
+    o.start(t); o.stop(t + 0.38);
+  }
+  function chargeSound() { [523, 784, 1047, 1319].forEach((f, i) => tone(f, i * 0.07, 0.26, 0.2)); }
+  function discoSound() {
+    [261, 329, 392, 523, 659].forEach((f, i) => tone(f, i * 0.05, 0.5, 0.16, 'sine'));
+    tone(60, 0, 0.7, 0.28, 'sine');
+  }
+  function zap() {
+    if (!soundOn) return;
+    const a = audio(), t = a.currentTime;
+    const o = a.createOscillator(), g = a.createGain();
+    o.type = 'square';
+    o.frequency.setValueAtTime(1800 + Math.random() * 900, t);
+    o.frequency.exponentialRampToValueAtTime(420, t + 0.09);
+    g.gain.setValueAtTime(0.11, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.1);
+    o.connect(g).connect(a.destination);
+    o.start(t); o.stop(t + 0.11);
+  }
+  function cry() { [880, 1180, 990].forEach((f, i) => tone(f, i * 0.07, 0.16, 0.13, 'square')); }
+
+  // ---------------------------------------------------------------- microphone
+  // A clap is a sharp spike: loud in absolute terms AND far above the room's
+  // own noise floor. Requiring both means a noisy room does not fire constantly.
+  let micStream = null, analyser = null, micBuf = null;
+  let micLevel = 0, noiseFloor = 0.01, lastClap = 0, clapFlash = 0;
+
+  async function enableMic() {
+    if (analyser) return true;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      micState.textContent = t('micNone');
+      return false;
+    }
+    try {
+      micStream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+      });
+    } catch (e) {
+      micState.textContent = e.name === 'NotAllowedError' ? t('micDenied') : t('micBusy', e.message);
+      return false;
+    }
+    const a = audio();
+    analyser = a.createAnalyser();
+    analyser.fftSize = 1024;
+    a.createMediaStreamSource(micStream).connect(analyser);
+    micBuf = new Float32Array(analyser.fftSize);
+    micState.textContent = t('micOn');
+    return true;
+  }
+
+  function stopMic() {
+    if (micStream) micStream.getTracks().forEach(t => t.stop());
+    micStream = null; analyser = null; micBuf = null; micLevel = 0;
+    micState.textContent = t('micOff');
+  }
+
+  // Loudest sample in the current audio frame, 0..1.
+  function peakLevel() {
+    if (!analyser) return 0;
+    analyser.getFloatTimeDomainData(micBuf);
+    let peak = 0;
+    for (let i = 0; i < micBuf.length; i++) {
+      const v = micBuf[i] < 0 ? -micBuf[i] : micBuf[i];
+      if (v > peak) peak = v;
+    }
+    return (micLevel = peak);
+  }
+
+  // The decision, kept apart from the measurement so it can be reasoned about
+  // (and tested) on its own. Returns true on the frame a clap lands.
+  function judgeClap(peak, now) {
+    const threshold = Number(clapInput.value) / 100;      // 0.04 .. 0.60
+    const spike = peak > threshold && peak > noiseFloor * 4;
+
+    // The floor tracks the room. It moves fast when things are calm and slowly
+    // while spiking, so one clap barely shifts it but a room that is loudly and
+    // continuously noisy raises it until the ratio test stops firing.
+    noiseFloor = spike ? noiseFloor * 0.99 + peak * 0.01
+                       : noiseFloor * 0.96 + peak * 0.04;
+
+    if (spike && now - lastClap > 500) { lastClap = now; clapFlash = now; return true; }
+    return false;
+  }
+
+  const listenForClap = now => analyser ? judgeClap(peakLevel(), now) : false;
+
+  // ---------------------------------------------------------------- camera
+  async function startCamera() {
+    errBox.hidden = true;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      return fail(t('camNone'));
+    }
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 960 }, height: { ideal: 720 }, facingMode: 'user' },
+        audio: false
+      });
+    } catch (e) {
+      const map = {
+        NotAllowedError: t('camDenied'),
+        NotFoundError: t('camMissing'),
+        NotReadableError: t('camBusy')
+      };
+      return fail(map[e.name] || t('camFail', e.message));
+    }
+    video.srcObject = stream;
+    await video.play();
+    camReady = true;
+    begin();
+  }
+  function fail(msg) { errBox.textContent = msg; errBox.hidden = false; }
+
+  function begin() {
+    startScreen.hidden = true;
+    overScreen.hidden = true;
+    setScreen.hidden = true;
+    paused = false;
+    level = 0;
+    makePlayers(players);
+    bubbles.length = birds.length = bits.length = pops.length = trail.length = 0;
+    $('stack1').hidden = players < 2;
+    $('who0').hidden = players < 2;
+    for (const pl of P) { pl.el.stack.classList.remove('out'); pl.el.score.textContent = '0'; }
+    updatePowerHud();
+    drawHearts();
+    updateLevelHud(0);
+    running = true;
+    startedAt = lastT = performance.now();
+    endsAt = startedAt + gameSeconds * 1000;
+    lastSpawn = 0; lastBird = startedAt;
+    shownSec = -1;
+    audio();
+    showBanner(t('level', 1), levelCfg(0).sub);
+    requestAnimationFrame(frame);
+  }
+
+  // ---------------------------------------------------------------- bubbles
+  const PALETTE = [190, 208, 262, 288, 320, 342, 158, 128];
+
+  function spawn(pi) {
+    const L = levelCfg(level);
+    const B = bounds(pi);
+    const halfW = B.x1 - B.x0;
+    const golden = Math.random() < L.golden;
+    const r = (golden ? 34 + Math.random() * 10
+                      : 28 + Math.random() * Math.min(52, W * 0.075)) * L.size;
+
+    // Small bubbles drift faster than big ones; golden ones are quicker still.
+    const dir = L.dirs[(Math.random() * L.dirs.length) | 0];
+    const raw = (52 + Math.random() * 44) * (golden ? 1.7 : 1) * (40 / r + 0.55) * L.speed * tempo();
+
+    // However fast the ramp gets, a bubble must stay on screen long enough to be
+    // seen and hit. Without this the last level crosses in under half a second,
+    // which is not difficulty — it is a bubble you were never offered.
+    const span = (dir === 'up' || dir === 'down') ? H : halfW;
+    const sp = Math.min(raw, span / MIN_CROSS_SEC);
+
+    // Each bubble wobbles across its line of travel, never along it.
+    let x, y, vx, vy, perpX, perpY;
+    if (dir === 'up' || dir === 'down') {
+      x = B.x0 + r + Math.random() * Math.max(1, halfW - r * 2);
+      y = dir === 'up' ? H + r : -r;
+      vx = 0; vy = dir === 'up' ? -sp : sp;
+      perpX = 1; perpY = 0;
+    } else {
+      x = dir === 'left' ? B.x0 - r : B.x1 + r;
+      y = r + Math.random() * Math.max(1, H - r * 2);
+      vx = dir === 'left' ? sp : -sp; vy = 0;
+      perpX = 0; perpY = 1;
+    }
+
+    bubbles.push({
+      x, y, r, vx, vy, perpX, perpY,
+      wob: Math.random() * Math.PI * 2,
+      wobSpeed: 0.7 + Math.random() * 0.9,
+      wobAmt: 12 + Math.random() * 22,
+      hue: golden ? 45 : (arcade() ? ARCADE_HUES[(Math.random() * ARCADE_HUES.length) | 0]
+                                  : PALETTE[(Math.random() * PALETTE.length) | 0]),
+      golden, born: performance.now(), pop: 0, p: pi
+    });
+  }
+
+  // Where a bubble actually appears, wobble included. Draw, click and motion
+  // tests all go through these so they can never disagree.
+  const drawnX = b => b.x + b.perpX * Math.sin(b.wob) * b.wobAmt;
+  const drawnY = b => b.y + b.perpY * Math.sin(b.wob) * b.wobAmt;
+
+  function popBubble(b) {
+    b.pop = 0.001;
+    const pl = P[b.p];
+    const now = performance.now();
+    pl.combo = now < pl.comboUntil ? pl.combo + 1 : 1;
+    pl.comboUntil = now + 1400;
+
+    const base = b.golden ? 50 : Math.round(30 - b.r * 0.22);
+    const mult = Math.min(5, 1 + Math.floor((pl.combo - 1) / 3));
+    const gained = Math.max(5, base) * mult;
+    addScore(gained, pl);
+
+    popSound(Math.min(2.2, 1 + (pl.combo - 1) * 0.07) * (b.golden ? 1.35 : 1) * (44 / b.r));
+
+    const px = drawnX(b), py = drawnY(b);
+    pops.push({ x: px, y: py, t: 0, text: '+' + gained, hue: b.hue });
+    for (let i = 0, n = b.golden ? 26 : 14; i < n; i++) {
+      const a = Math.random() * Math.PI * 2, sp = 60 + Math.random() * 190;
+      bits.push({ x: px, y: py, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 40,
+                  r: 2 + Math.random() * 4, hue: b.hue, life: 1 });
+    }
+  }
+
+  function addScore(n, pl) {
+    pl.score = Math.max(0, pl.score + n);    // never go negative — this is a kid's game
+    pl.el.score.textContent = pl.score;
+    if (pl.score > best) { best = pl.score; store.set('bubblepoke.best', best); }
+
+    // Charges are earned on points *gained*, so the phoenix costs you score
+    // but never sets back your progress towards the next disco ball.
+    if (n > 0) {
+      pl.earned += n;
+      while (pl.earned >= pl.nextCharge && pl.charges < MAX_CHARGES) {
+        pl.charges++;
+        pl.nextCharge += powerEvery;
+        chargeSound();
+        showBanner(t('discoBall'), clapReady() ? t('clapNow') : t('pressSpace'));
+      }
+      while (pl.earned >= pl.nextCharge) pl.nextCharge += powerEvery;   // capped
+    }
+    updatePowerHud();
+  }
+
+  const clapReady = () => clapOn && !!analyser;
+
+  function updatePowerHud() {
+    for (const pl of P) {
+      if (pl.charges > 0) {
+        pl.el.power.textContent = (pl.charges > 1 ? pl.charges + '× ' : '') +
+                                  t(clapReady() ? 'clapPill' : 'spacePill');
+        pl.el.power.classList.add('ready');
+      } else {
+        const into = powerEvery - (pl.nextCharge - pl.earned);
+        pl.el.power.textContent = `⚡ ${Math.max(0, Math.round(into))}/${powerEvery}`;
+        pl.el.power.classList.remove('ready');
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------- disco ball
+  // A single microphone cannot tell which player clapped, so a clap (or the
+  // space bar) sets off the ball for everyone who has one charged.
+  function fireDisco(now) {
+    let any = false;
+    for (const pl of P) {
+      if (pl.charges < 1 || pl.out || !running || paused || now < pl.disco.until) continue;
+      pl.charges--;
+      pl.disco.until = now + DISCO_MS;
+      pl.disco.lastBeam = 0;
+      any = true;
+    }
+    if (any) { discoSound(); updatePowerHud(); }
+    return any;
+  }
+
+  // Pick a bubble at random and lance it. "Some of the bubbles", not all —
+  // the ball is a bonus, not a board wipe.
+  function fireBeam(now, pl) {
+    const targets = bubbles.filter(b => !b.pop && b.p === pl.i);
+    if (!targets.length) return;
+    const b = targets[(Math.random() * targets.length) | 0];
+    pl.disco.beams.push({ x: drawnX(b), y: drawnY(b), born: now, hue: b.hue });
+    zap();
+    popBubble(b);
+  }
+
+  function discoCentre(pl) {
+    const B = bounds(pl.i);
+    return { x: B.cx, y: H * 0.38, r: Math.min(B.x1 - B.x0, H) * 0.085 };
+  }
+
+  function drawDisco(now, pl) {
+    const c = discoCentre(pl);
+    const disco = pl.disco;
+    const life = (disco.until - now) / DISCO_MS;          // 1 → 0
+    const grow = Math.min(1, (1 - life) * 6);            // quick pop-in
+    const R = c.r * grow * (life < 0.15 ? life / 0.15 : 1);
+    if (R <= 1) return;
+    const spin = now / 520;
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+
+    // rotating light shafts
+    for (let i = 0; i < 8; i++) {
+      const a = spin * 0.6 + (i * Math.PI * 2) / 8;
+      const far = Math.max(W, H);
+      ctx.beginPath();
+      ctx.moveTo(c.x, c.y);
+      ctx.lineTo(c.x + Math.cos(a - 0.05) * far, c.y + Math.sin(a - 0.05) * far);
+      ctx.lineTo(c.x + Math.cos(a + 0.05) * far, c.y + Math.sin(a + 0.05) * far);
+      ctx.closePath();
+      ctx.fillStyle = arcade()
+        ? `hsla(${[180, 300, 60][i % 3]}, 100%, 60%, .13)`
+        : `hsla(${(i * 44 + now / 8) % 360}, 100%, 60%, .10)`;
+      ctx.fill();
+    }
+
+    // laser beams to the bubbles it hit
+    for (const bm of disco.beams) {
+      const k = 1 - (now - bm.born) / BEAM_LIFE;
+      if (k <= 0) continue;
+      const g = ctx.createLinearGradient(c.x, c.y, bm.x, bm.y);
+      g.addColorStop(0, `hsla(${bm.hue}, 100%, 85%, ${k})`);
+      g.addColorStop(1, `hsla(${bm.hue}, 100%, 65%, ${k * 0.25})`);
+      ctx.strokeStyle = g;
+      ctx.lineWidth = 2 + k * 7;
+      ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(c.x, c.y); ctx.lineTo(bm.x, bm.y); ctx.stroke();
+      ctx.fillStyle = `hsla(${bm.hue}, 100%, 92%, ${k})`;
+      ctx.beginPath(); ctx.arc(bm.x, bm.y, 4 + k * 14, 0, Math.PI * 2); ctx.fill();
+    }
+
+    // halo
+    const glow = ctx.createRadialGradient(c.x, c.y, R * 0.4, c.x, c.y, R * 2.6);
+    glow.addColorStop(0, 'rgba(200,230,255,.45)');
+    glow.addColorStop(1, 'rgba(120,180,255,0)');
+    ctx.fillStyle = glow;
+    ctx.beginPath(); ctx.arc(c.x, c.y, R * 2.6, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+
+    // the ball: mirrored facets on a sphere, back faces skipped
+    ctx.save();
+    ctx.beginPath(); ctx.arc(c.x, c.y, R, 0, Math.PI * 2);
+    ctx.fillStyle = arcade() ? '#05060a' : '#0d1430'; ctx.fill();
+
+    const LAT = 9, LON = 20;
+    const lx = -0.42, ly = 0.5, lz = 0.76;               // light direction
+    for (let i = 0; i < LAT; i++) {
+      const la0 = -Math.PI / 2 + (i / LAT) * Math.PI;
+      const la1 = -Math.PI / 2 + ((i + 1) / LAT) * Math.PI;
+      for (let j = 0; j < LON; j++) {
+        const lo0 = spin + (j / LON) * Math.PI * 2;
+        const lo1 = spin + ((j + 1) / LON) * Math.PI * 2;
+        const pts = [[la0, lo0], [la0, lo1], [la1, lo1], [la1, lo0]].map(([la, lo]) => {
+          const cl = Math.cos(la);
+          return [cl * Math.sin(lo), Math.sin(la), cl * Math.cos(lo)];
+        });
+        if (pts.reduce((a, p) => a + p[2], 0) / 4 <= 0.02) continue;   // facing away
+
+        const nx = pts.reduce((a, p) => a + p[0], 0) / 4;
+        const ny = pts.reduce((a, p) => a + p[1], 0) / 4;
+        const nz = pts.reduce((a, p) => a + p[2], 0) / 4;
+        let bright = Math.max(0, nx * lx + ny * ly + nz * lz);
+        // a few facets catch the light and flare, and the set shifts as it turns
+        const twinkle = Math.sin(j * 12.9898 + i * 78.233 + spin * 2) > 0.86;
+        if (twinkle) bright = Math.min(1, bright + 0.75);
+
+        ctx.beginPath();
+        pts.forEach((p, k) => {
+          const X = c.x + p[0] * R, Y = c.y - p[1] * R;
+          k ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y);
+        });
+        ctx.closePath();
+        if (arcade()) {
+          // four flat phosphor steps instead of a smooth ramp, plus a wire edge
+          const band = bright > 0.75 ? 0 : bright > 0.5 ? 1 : bright > 0.25 ? 2 : 3;
+          ctx.fillStyle = twinkle ? '#ffffff' : ['#8ffff0', '#21f5d3', '#128f7f', '#0a4a44'][band];
+          ctx.fill();
+          ctx.strokeStyle = 'rgba(5,6,10,.85)';
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        } else {
+          const hue = 190 + ((j * 17 + i * 9 + spin * 30) % 90);
+          ctx.fillStyle = `hsl(${hue}, ${twinkle ? 30 : 55}%, ${18 + bright * 74}%)`;
+          ctx.fill();
+        }
+      }
+    }
+    ctx.restore();
+  }
+
+  // ---------------------------------------------------------------- phoenix
+  // Crosses one horizontal band of the screen. Touch it and it burns points.
+  function spawnBird(pi) {
+    const B = bounds(pi);
+    const fromLeft = Math.random() < 0.5;
+    const r = 46 + Math.random() * 14;
+    const band = 0.18 + Math.random() * 0.6;             // never right at the edges
+    birds.push({
+      p: pi, x0: B.x0, x1: B.x1,
+      x: fromLeft ? B.x0 - r * 2 : B.x1 + r * 2,
+      y: H * band,
+      r,
+      vx: (fromLeft ? 1 : -1) * (240 + level * 45 + Math.random() * 60),
+      face: fromLeft ? 1 : -1,
+      wob: Math.random() * Math.PI * 2,
+      wobAmt: 26 + Math.random() * 30,
+      phase: Math.random() * Math.PI * 2,
+      spent: false                                        // each phoenix stings once
+    });
+    cry();
+  }
+
+  const birdY = (p, now) => p.y + Math.sin(p.wob + now / 620) * p.wobAmt;
+
+  function burn(p, now) {
+    p.spent = true;
+    const pl = P[p.p];
+    pl.combo = 0;
+    addScore(-BURN, pl);
+    screech();
+    shakeUntil = now + 380;
+    flashEl.classList.add('on');
+    setTimeout(() => flashEl.classList.remove('on'), 90);
+    pops.push({ x: p.x, y: birdY(p, now), t: 0, text: '−' + BURN, hue: 12, bad: true });
+    for (let i = 0; i < 22; i++) {
+      const a = Math.random() * Math.PI * 2, sp = 70 + Math.random() * 200;
+      bits.push({ x: p.x, y: birdY(p, now), vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 30,
+                  r: 2 + Math.random() * 5, hue: 20 + Math.random() * 30, life: 1 });
+    }
+  }
+
+  function drawPhoenix(p, now) {
+    if (arcade()) return drawPhoenixArcade(p, now);
+    const t = now / 1000;
+    const flap = Math.sin(t * 9 + p.phase);
+    ctx.save();
+    ctx.translate(p.x, birdY(p, now));
+    ctx.scale(p.face, 1);
+    const s = p.r / 46;
+    ctx.scale(s, s);
+    if (p.spent) ctx.globalAlpha = 0.45;
+
+    const glow = ctx.createRadialGradient(0, 0, 4, 0, 0, 78);
+    glow.addColorStop(0, 'rgba(255,214,110,.5)');
+    glow.addColorStop(1, 'rgba(255,90,20,0)');
+    ctx.fillStyle = glow;
+    ctx.beginPath(); ctx.arc(0, 0, 78, 0, Math.PI * 2); ctx.fill();
+
+    ctx.lineCap = 'round';
+    for (let i = -1; i <= 1; i++) {                       // tail streamers
+      ctx.beginPath();
+      ctx.moveTo(-14, i * 4);
+      ctx.quadraticCurveTo(-46, i * 17 + flap * 8, -80, i * 27 + flap * 15);
+      ctx.lineWidth = 7 - Math.abs(i) * 2;
+      ctx.strokeStyle = i === 0 ? 'rgba(255,214,84,.95)' : 'rgba(255,120,30,.85)';
+      ctx.stroke();
+    }
+
+    for (const up of [-1, 1]) {                           // wings
+      ctx.beginPath();
+      ctx.moveTo(-4, 0);
+      ctx.quadraticCurveTo(-12, up * (30 + flap * 18), 26, up * (46 + flap * 22));
+      ctx.quadraticCurveTo(16, up * (16 + flap * 6), 12, 0);
+      ctx.closePath();
+      const wg = ctx.createLinearGradient(0, 0, 22, up * 42);
+      wg.addColorStop(0, '#ffe9a0'); wg.addColorStop(0.55, '#ff8a2b'); wg.addColorStop(1, '#e0301c');
+      ctx.fillStyle = wg; ctx.fill();
+    }
+
+    const bg = ctx.createLinearGradient(-24, 0, 32, 0);   // body
+    bg.addColorStop(0, '#ff5f14'); bg.addColorStop(0.6, '#ffb43c'); bg.addColorStop(1, '#fff2b8');
+    ctx.fillStyle = bg;
+    ctx.beginPath(); ctx.ellipse(2, 0, 26, 13, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(26, -7, 10, 0, Math.PI * 2); ctx.fill();
+
+    ctx.fillStyle = '#ffcf4d';                            // beak
+    ctx.beginPath(); ctx.moveTo(35, -8); ctx.lineTo(49, -4); ctx.lineTo(35, 0); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#3a1004';                            // eye
+    ctx.beginPath(); ctx.arc(29, -9, 2.6, 0, Math.PI * 2); ctx.fill();
+
+    ctx.restore();
+  }
+
+  // The same bird as a sprite: blocks of flat colour on a 1980s colour budget.
+  function drawPhoenixArcade(p, now) {
+    const flap = Math.sin(now / 1000 * 9 + p.phase);
+    const step = Math.round(flap * 2);                   // wings snap between poses
+    ctx.save();
+    ctx.translate(Math.round(p.x), Math.round(birdY(p, now)));
+    ctx.scale(p.face, 1);
+    const u = Math.max(3, Math.round(p.r / 9));          // one "pixel"
+    if (p.spent) ctx.globalAlpha = 0.4;
+    ctx.shadowColor = '#ff7a1a'; ctx.shadowBlur = 18;
+
+    const px = (gx, gy, gw, gh, col) => {
+      ctx.fillStyle = col;
+      ctx.fillRect(gx * u, gy * u, gw * u, gh * u);
+    };
+
+    px(-5, -1 + step, 2, 1, '#ff3b0f');                  // tail
+    px(-7, -1 + step * 2, 2, 1, '#ff7a1a');
+    px(-2, -3 - step, 4, 2, '#ffb43c');                  // upper wing
+    px(-1, -5 - step, 3, 2, '#ffe64d');
+    px(-2, 1 + step, 4, 2, '#ffb43c');                   // lower wing
+    px(-1, 3 + step, 3, 2, '#ff7a1a');
+    px(-3, -1, 6, 2, '#ff5f14');                         // body
+    px(-1, -1, 3, 2, '#ffe64d');
+    px(3, -2, 2, 2, '#ffb43c');                          // head
+    px(5, -2, 2, 1, '#ffe64d');                          // beak
+    px(3, -2, 1, 1, '#2a0a00');                          // eye
+    ctx.restore();
+  }
+
+  // ---------------------------------------------------------------- lives & levels
+  function miss(pl) {
+    if (pl.out) return;                      // already finished; stop counting
+    pl.lives--;
+    pl.combo = 0;
+    drawHearts();
+    const el = pl.el.hearts;
+    el.classList.remove('hurt');
+    void el.offsetWidth;
+    el.classList.add('hurt');
+    missSound();
+    if (pl.lives <= 0) {
+      pl.out = true;
+      pl.el.stack.classList.add('out');
+      pl.disco.until = 0; pl.disco.beams.length = 0;
+      // Their leftover bubbles are swept up by the loop, NOT here: miss() runs
+      // from inside the bubble loop, and splicing the array under it makes the
+      // loop index past the end.
+      // With two players the other one plays on; the game ends when everyone
+      // is out, or when the clock does.
+      if (P.every(q => q.out)) gameOver('lives');
+    }
+  }
+
+  function drawHearts() {
+    for (const pl of P) {
+      pl.el.hearts.textContent = '';
+      for (let i = 0; i < MAX_LIVES; i++) {
+        const s = document.createElement('span');
+        s.textContent = '♥';
+        if (i >= pl.lives) s.className = 'gone';
+        pl.el.hearts.appendChild(s);
+      }
+    }
+  }
+
+  function updateLevelHud(progress) {
+    levelEl.textContent = level + 1;
+    barEl.style.width = Math.min(100, progress * 100) + '%';
+  }
+
+  function levelUp(n) {
+    level = n;
+    for (const pl of P) if (!pl.out) pl.lives = Math.min(MAX_LIVES, pl.lives + 1);  // mercy for surviving
+    drawHearts();
+    fanfare();
+    showBanner(t('level', level + 1), levelCfg(level).sub);
+  }
+
+  function showBanner(big, sub) {
+    bannerBig.textContent = big;
+    bannerSub.textContent = sub;
+    bannerEl.classList.add('on');
+    bannerUntil = performance.now() + 1800;
+  }
+
+  // ---------------------------------------------------------------- leaderboard
+  const BOARD_KEY = 'bubblepoke.board';
+  const BOARD_MAX = 10;
+  let lastEntry = null;
+
+  function cleanEntry(e) {
+    if (!e || typeof e.name !== 'string' || !Number.isFinite(Number(e.score))) return null;
+    return {
+      name: e.name.slice(0, 24),
+      score: Math.max(0, Math.round(Number(e.score))),
+      level: Math.max(1, Math.round(Number(e.level)) || 1),
+      id: String(e.id || Math.random().toString(36).slice(2))
+    };
+  }
+
+  function loadBoard() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(BOARD_KEY) || '[]');
+      if (!Array.isArray(raw)) return [];
+      return raw.map(cleanEntry).filter(Boolean)
+                .sort((a, b) => b.score - a.score).slice(0, BOARD_MAX);
+    } catch { return []; }
+  }
+
+  function writeBoard(list) {
+    const trimmed = list.sort((a, b) => b.score - a.score).slice(0, BOARD_MAX);
+    store.set(BOARD_KEY, JSON.stringify(trimmed));
+    return trimmed;
+  }
+
+  function saveEntry(name, pts, lvl) {
+    const entry = cleanEntry({ name, score: pts, level: lvl, id: String(Date.now()) });
+    lastEntry = entry.id;
+    return writeBoard(loadBoard().concat(entry));
+  }
+
+  // Built with createElement/textContent — a player's name is never parsed as HTML.
+  function renderBoard(list) {
+    boardEl.textContent = '';
+    if (!list.length) return;
+    list.forEach((e, i) => {
+      const tr = document.createElement('tr');
+      if (e.id && e.id === lastEntry) tr.className = 'you';
+      const cells = [
+        ['rank', ['🥇', '🥈', '🥉'][i] || (i + 1) + '.'],
+        ['who', e.name],
+        ['lvl', t('lvlShort', e.level)],
+        ['pts', String(e.score)]
+      ];
+      for (const [cls, text] of cells) {
+        const td = document.createElement('td');
+        td.className = cls; td.textContent = text;
+        tr.appendChild(td);
+      }
+      boardEl.appendChild(tr);
+    });
+  }
+
+  // reason: 'time' (clock ran out) | 'lives' (five misses)
+  function gameOver(reason) {
+    if (!running) return;
+    running = false;
+    bannerEl.classList.remove('on');
+    timerEl.classList.remove('low');
+    sadTrombone();
+
+    const top = P.reduce((a, b) => b.score > a.score ? b : a);
+    const isBest = top.score > 0 && top.score >= best;
+    overTitle.textContent = players > 1
+      ? (P[0].score === P[1].score ? t('draw') : t('playerWins', top.i + 1))
+      : t(isBest ? 'newBest' : 'over');
+    overLine.textContent = players > 1
+      ? t('finalScores', P[0].score, P[1].score)
+      : t(reason === 'time' ? 'outOfTime' : 'outOfLives', level + 1) + ' ' + t('scored', top.score);
+
+    nameInput2.hidden = players < 2;
+    nameInput.placeholder = players > 1 ? t('nameP', 1) : t('yourName');
+    nameInput2.placeholder = t('nameP', 2);
+    nameForm.hidden = top.score <= 0;
+    nameInput.value = store.get('bubblepoke.name', '');
+    lastEntry = null;
+    renderBoard(loadBoard());
+    overScreen.hidden = false;
+    if (!nameForm.hidden) setTimeout(() => { nameInput.focus(); nameInput.select(); }, 60);
+  }
+
+  nameInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); nameForm.requestSubmit(); }
+  });
+  nameForm.addEventListener('submit', e => {
+    e.preventDefault();
+    let list = loadBoard();
+    const entries = [[nameInput, P[0]], [nameInput2, P[1]]];
+    for (const [input, pl] of entries) {
+      if (!pl || input.hidden) continue;
+      const name = input.value.trim() || t('nameP', pl.i + 1);
+      if (pl.i === 0) store.set('bubblepoke.name', name);
+      list = saveEntry(name, pl.score, level + 1);
+    }
+    renderBoard(list);
+    nameForm.hidden = true;                 // one entry per player per game
+  });
+
+  // ---------------------------------------------------------------- motion
+  function coverFit() {
+    const vw = video.videoWidth || 4, vh = video.videoHeight || 3;
+    const s = Math.max(W / vw, H / vh);
+    return { s, dw: vw * s, dh: vh * s, dx: (W - vw * s) / 2, dy: (H - vh * s) / 2 };
+  }
+
+  function detectMotion() {
+    mctx.save();
+    mctx.scale(-1, 1);
+    mctx.drawImage(video, -MW, 0, MW, MH);
+    mctx.restore();
+
+    const px = mctx.getImageData(0, 0, MW, MH).data;
+    const gray = grayA, prev = grayB;
+    for (let i = 0, p = 0; i < gray.length; i++, p += 4) {
+      gray[i] = (px[p] * 77 + px[p + 1] * 150 + px[p + 2] * 29) >> 8;
+    }
+    grayA = prev; grayB = gray;
+
+    if (!havePrev) { havePrev = true; mask.fill(0); return; }
+
+    const t = 74 - Number(sensInput.value);   // 70 (strict) .. 14 (twitchy)
+    let moved = 0;
+    for (let i = 0; i < gray.length; i++) {
+      const d = gray[i] - prev[i];
+      const hit = (d > t || d < -t) ? 1 : 0;
+      mask[i] = hit;
+      moved += hit;
+    }
+    globalMotion = moved / gray.length;
+  }
+
+  // How much of a circle on screen is moving right now, 0..1. Big targets only
+  // watch their middle — a hand is hand-sized, and otherwise the biggest
+  // bubbles would be the hardest to hit.
+  function motionOver(cx0, cy0, r, fit) {
+    const sx = MW / fit.dw, sy = MH / fit.dh;
+    const rEff = Math.min(r, 50);
+    const cx = (cx0 - fit.dx) * sx, cy = (cy0 - fit.dy) * sy;
+    const rx = rEff * sx, ry = rEff * sy;
+    const x0 = Math.max(0, Math.floor(cx - rx)), x1 = Math.min(MW - 1, Math.ceil(cx + rx));
+    const y0 = Math.max(0, Math.floor(cy - ry)), y1 = Math.min(MH - 1, Math.ceil(cy + ry));
+    if (x1 <= x0 || y1 <= y0) return 0;
+
+    let hit = 0, total = 0;
+    for (let y = y0; y <= y1; y++) {
+      const dy = (y - cy) / ry;
+      for (let x = x0; x <= x1; x++) {
+        const dx = (x - cx) / rx;
+        if (dx * dx + dy * dy > 1) continue;
+        total++; hit += mask[y * MW + x];
+      }
+    }
+    return total < 6 ? 0 : hit / total;
+  }
+
+  function motionCentroid(fit) {
+    let sx = 0, sy = 0, n = 0;
+    for (let y = 0; y < MH; y++) {
+      for (let x = 0; x < MW; x++) {
+        if (mask[y * MW + x]) { sx += x; sy += y; n++; }
+      }
+    }
+    if (n < 25) return null;
+    return { x: fit.dx + (sx / n) * (fit.dw / MW), y: fit.dy + (sy / n) * (fit.dh / MH) };
+  }
+
+  // ---------------------------------------------------------------- drawing
+  function drawBackground(fit) {
+    const retro = arcade();
+    if (camReady && video.readyState >= 2) {
+      ctx.save();
+      ctx.translate(W, 0); ctx.scale(-1, 1);          // mirror: feels like a mirror
+      ctx.drawImage(video, W - fit.dx - fit.dw, fit.dy, fit.dw, fit.dh);
+      ctx.restore();
+      if (retro) {
+        // push the camera towards a monochrome phosphor picture
+        ctx.fillStyle = 'rgba(0, 8, 6, .55)';
+        ctx.fillRect(0, 0, W, H);
+        ctx.save();
+        ctx.globalCompositeOperation = 'overlay';
+        ctx.fillStyle = 'rgba(0, 255, 170, .22)';
+        ctx.fillRect(0, 0, W, H);
+        ctx.restore();
+      } else {
+        ctx.fillStyle = 'rgba(8, 12, 30, .3)';
+        ctx.fillRect(0, 0, W, H);
+      }
+    } else if (retro) {
+      ctx.fillStyle = '#05060a';
+      ctx.fillRect(0, 0, W, H);
+      ctx.strokeStyle = 'rgba(33, 245, 211, .10)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let x = 0; x <= W; x += 44) { ctx.moveTo(x + .5, 0); ctx.lineTo(x + .5, H); }
+      for (let y = 0; y <= H; y += 44) { ctx.moveTo(0, y + .5); ctx.lineTo(W, y + .5); }
+      ctx.stroke();
+    } else {
+      const g = ctx.createLinearGradient(0, 0, 0, H);
+      g.addColorStop(0, '#22306b'); g.addColorStop(1, '#0b1020');
+      ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    }
+  }
+
+  const dbgCanvas = document.createElement('canvas');
+  dbgCanvas.width = MW; dbgCanvas.height = MH;
+  const dbgCtx = dbgCanvas.getContext('2d');
+  const dbgImg = dbgCtx.createImageData(MW, MH);
+
+  function drawDebug() {
+    const w = 168, h = 126, x = W - w - 16, y = H - h - 74;
+    ctx.save();
+    ctx.globalAlpha = 0.9;
+    ctx.fillStyle = '#000'; ctx.fillRect(x, y, w, h);
+    const d = dbgImg.data;
+    for (let i = 0; i < mask.length; i++) {
+      const v = mask[i], p = i * 4;
+      d[p] = v ? 255 : 10; d[p + 1] = v ? 79 : 16; d[p + 2] = v ? 163 : 32; d[p + 3] = 255;
+    }
+    dbgCtx.putImageData(dbgImg, 0, 0);
+    ctx.drawImage(dbgCanvas, x, y, w, h);
+    ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.lineWidth = 2;
+    ctx.strokeRect(x, y, w, h);
+    ctx.restore();
+  }
+
+  function drawBubble(b) {
+    const grow = b.pop ? 1 + b.pop * 0.9 : 1;
+    const alpha = b.pop ? Math.max(0, 1 - b.pop) : 1;
+    const x = drawnX(b), y = drawnY(b), r = b.r * grow;
+
+    if (arcade()) return drawBubbleArcade(b, x, y, r, alpha);
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+
+    const g = ctx.createRadialGradient(x - r * 0.35, y - r * 0.4, r * 0.1, x, y, r);
+    g.addColorStop(0, `hsla(${b.hue}, 100%, 88%, .95)`);
+    g.addColorStop(0.45, `hsla(${b.hue}, 95%, 66%, .55)`);
+    g.addColorStop(1, `hsla(${b.hue}, 90%, 52%, .28)`);
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+
+    ctx.lineWidth = b.golden ? 4 : 2.5;
+    ctx.strokeStyle = `hsla(${b.hue}, 100%, ${b.golden ? 72 : 84}%, ${b.golden ? .95 : .8})`;
+    ctx.stroke();
+
+    ctx.fillStyle = 'rgba(255,255,255,.85)';
+    ctx.beginPath(); ctx.ellipse(x - r * 0.34, y - r * 0.38, r * 0.19, r * 0.13, -0.6, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = alpha * 0.5;
+    ctx.beginPath(); ctx.arc(x + r * 0.36, y + r * 0.3, r * 0.07, 0, Math.PI * 2); ctx.fill();
+
+    if (b.golden) {
+      ctx.globalAlpha = alpha;
+      ctx.font = `700 ${Math.round(r * 0.8)}px system-ui, sans-serif`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('★', x, y + r * 0.04);
+    }
+    ctx.restore();
+  }
+
+  // Hard-edged neon rings: no soft gradients, because a CRT drew shapes, not
+  // airbrushes. The glow is the tube blooming, not a blur filter.
+  function drawBubbleArcade(b, x, y, r, alpha) {
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    const h = b.hue;
+
+    ctx.fillStyle = `hsla(${h}, 100%, 10%, .72)`;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+
+    ctx.shadowColor = `hsl(${h}, 100%, 60%)`;
+    ctx.shadowBlur = 16;
+    ctx.strokeStyle = `hsl(${h}, 100%, ${b.golden ? 62 : 66}%)`;
+    ctx.lineWidth = b.golden ? 6 : 4;
+    ctx.beginPath(); ctx.arc(x, y, r - 2, 0, Math.PI * 2); ctx.stroke();
+
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = `hsla(${h}, 100%, 84%, .55)`;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(x, y, r * 0.6, 0, Math.PI * 2); ctx.stroke();
+
+    // a square glint, the way a sprite would have done it
+    const q = Math.max(3, r * 0.16);
+    ctx.fillStyle = 'rgba(255,255,255,.9)';
+    ctx.fillRect(x - r * 0.46, y - r * 0.5, q, q);
+
+    if (b.golden) {
+      ctx.shadowColor = '#ffe64d'; ctx.shadowBlur = 14;
+      ctx.fillStyle = '#ffe64d';
+      ctx.font = `700 ${Math.round(r * 0.95)}px ui-monospace, "Courier New", monospace`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('★', x, y + r * 0.06);
+    }
+    ctx.restore();
+  }
+
+  // The seam between the two playfields.
+  function drawSplit() {
+    const x = Math.round(W / 2);
+    ctx.save();
+    ctx.strokeStyle = arcade() ? 'rgba(33,245,211,.55)' : 'rgba(255,255,255,.3)';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([12, 10]);
+    ctx.beginPath(); ctx.moveTo(x + .5, 0); ctx.lineTo(x + .5, H); ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawTrail() {
+    for (let i = 0; i < trail.length; i++) {
+      const p = trail[i];
+      ctx.save();
+      ctx.globalAlpha = p.life * 0.5;
+      ctx.fillStyle = `hsla(${(performance.now() / 12 + i * 14) % 360}, 100%, 72%, 1)`;
+      ctx.beginPath(); ctx.arc(p.x, p.y, 5 + p.life * 16, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  // ---------------------------------------------------------------- loop
+  function frame(now) {
+    if (!running) return;
+    if (paused) { lastT = now; requestAnimationFrame(frame); return; }
+
+    const dt = Math.min(0.05, (now - lastT) / 1000);
+    lastT = now;
+
+    // ---- clock and level
+    const leftMs = endsAt - now;
+    const sec = Math.max(0, Math.ceil(leftMs / 1000));
+    if (sec !== shownSec) {
+      shownSec = sec;
+      timerEl.textContent = mmss(sec);
+      timerEl.classList.toggle('low', sec <= 10);
+      if (sec <= 5 && sec > 0) tone(880, 0, 0.08, 0.15, 'square');
+    }
+    if (leftMs <= 0) { gameOver('time'); return; }
+
+    const elapsed = now - startedAt;
+    const wantLevel = Math.floor(elapsed / LEVEL_MS);
+    if (wantLevel > level) levelUp(wantLevel);
+    updateLevelHud((elapsed % LEVEL_MS) / LEVEL_MS);
+
+    if (camReady && video.readyState >= 2) detectMotion();
+    const fit = coverFit();
+    const L = levelCfg(level);
+
+    // A big lighting change or a bumped camera moves *everything* — don't count it.
+    const sane = globalMotion < 0.45;
+    const need = 0.42 - Number(sensInput.value) / 100 * 0.5;   // 0.12 .. 0.38
+    const live = camReady && sane;
+
+    // ---- super power
+    if (clapOn && listenForClap(now)) fireDisco(now);
+    for (const pl of P) {
+      const d = pl.disco;
+      if (now < d.until && now - d.lastBeam > BEAM_EVERY) { fireBeam(now, pl); d.lastBeam = now; }
+      while (d.beams.length && now - d.beams[0].born > BEAM_LIFE) d.beams.shift();
+    }
+
+    // ---- spawn, one playfield at a time
+    const livePlayers = P.filter(pl => !pl.out);
+    if (now - lastSpawn > L.gap / tempo() / (livePlayers.length || 1) && livePlayers.length) {
+      const pl = livePlayers[(Math.random() * livePlayers.length) | 0];
+      if (bubbles.filter(b => b.p === pl.i).length < L.max) { spawn(pl.i); lastSpawn = now; }
+    }
+    if (level >= 1 && now - lastBird > L.phoenixGap && livePlayers.length) {
+      const pl = livePlayers[(Math.random() * livePlayers.length) | 0];
+      if (birds.filter(b => b.p === pl.i).length < 2) { spawnBird(pl.i); lastBird = now; }
+    }
+
+    // ---- bubbles
+    for (let i = bubbles.length - 1; i >= 0; i--) {
+      const b = bubbles[i];
+      if (b.pop) {
+        b.pop += dt * 3.6;
+        if (b.pop >= 1) bubbles.splice(i, 1);
+        continue;
+      }
+      b.x += b.vx * dt; b.y += b.vy * dt;
+      b.wob += b.wobSpeed * dt;
+
+      const m = b.r * 2, B = bounds(b.p);
+      if (b.x < B.x0 - m || b.x > B.x1 + m || b.y < -m || b.y > H + m) {
+        bubbles.splice(i, 1);
+        miss(P[b.p]);
+        if (!running) return;
+        continue;
+      }
+      // 350 ms of grace, so a bubble never pops the instant it appears
+      if (live && now - b.born > 350 && motionOver(drawnX(b), drawnY(b), b.r, fit) > need) popBubble(b);
+    }
+
+    // ---- sweep up a finished player's half (see miss())
+    if (P.some(pl => pl.out)) {
+      for (let i = bubbles.length - 1; i >= 0; i--) if (P[bubbles[i].p].out) bubbles.splice(i, 1);
+    }
+
+    // ---- phoenixes
+    for (let i = birds.length - 1; i >= 0; i--) {
+      const p = birds[i];
+      p.x += p.vx * dt;
+      if (p.x < p.x0 - p.r * 3 || p.x > p.x1 + p.r * 3 || P[p.p].out) { birds.splice(i, 1); continue; }
+
+      const py = birdY(p, now);
+      bits.push({ x: p.x - p.face * p.r * 0.8, y: py + (Math.random() - 0.5) * 16,
+                  vx: -p.face * 30, vy: -20 - Math.random() * 30,
+                  r: 1.5 + Math.random() * 3, hue: 20 + Math.random() * 34, life: 0.7 });
+
+      if (!p.spent && live && motionOver(p.x, py, p.r * 0.8, fit) > need) burn(p, now);
+    }
+
+    // ---- particles
+    for (let i = bits.length - 1; i >= 0; i--) {
+      const p = bits[i];
+      p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 420 * dt;
+      p.life -= dt * 1.5;
+      if (p.life <= 0) bits.splice(i, 1);
+    }
+    for (let i = pops.length - 1; i >= 0; i--) {
+      pops[i].t += dt;
+      if (pops[i].t > 0.9) pops.splice(i, 1);
+    }
+    for (let i = trail.length - 1; i >= 0; i--) {
+      trail[i].life -= dt * 2.4;
+      if (trail[i].life <= 0) trail.splice(i, 1);
+    }
+    if (live) {
+      const c = motionCentroid(fit);
+      if (c) trail.push({ x: c.x, y: c.y, life: 1 });
+      if (trail.length > 24) trail.shift();
+    }
+
+    // ---- render
+    ctx.save();
+    if (now < shakeUntil) {
+      const k = (shakeUntil - now) / 380;
+      ctx.translate((Math.random() - 0.5) * 18 * k, (Math.random() - 0.5) * 18 * k);
+    }
+
+    drawBackground(fit);
+    if (players > 1) drawSplit();
+    drawTrail();
+    for (const b of bubbles) drawBubble(b);
+
+    const retro = arcade();
+    for (const p of bits) {
+      ctx.globalAlpha = Math.max(0, p.life);
+      ctx.fillStyle = `hsl(${p.hue}, 100%, ${retro ? 62 : 74}%)`;
+      if (retro) {                                  // square pixels, not dots
+        const q = Math.max(2, Math.round(p.r * 1.8));
+        ctx.fillRect(Math.round(p.x), Math.round(p.y), q, q);
+      } else {
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+    ctx.globalAlpha = 1;
+
+    for (const p of birds) drawPhoenix(p, now);
+    for (const pl of P) if (now < pl.disco.until || pl.disco.beams.length) drawDisco(now, pl);
+
+    ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+    for (const p of pops) {
+      const k = p.t / 0.9;
+      ctx.globalAlpha = 1 - k;
+      const px = Math.round((p.bad ? 32 : 26) + k * 10);
+      ctx.font = retro ? `700 ${px}px ui-monospace, "Courier New", monospace`
+                       : `800 ${px}px system-ui, sans-serif`;
+      ctx.fillStyle = p.bad ? (retro ? '#ff3b6b' : '#ff6a3d')
+                            : `hsl(${p.hue}, 100%, ${retro ? 66 : 80}%)`;
+      ctx.fillText(p.text, p.x, p.y - k * 52);
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+
+    if (debugOn) drawDebug();
+    if (bannerUntil && now > bannerUntil) { bannerEl.classList.remove('on'); bannerUntil = 0; }
+
+    for (const pl of P) {
+      if (pl.combo > 1 && now < pl.comboUntil) {
+        pl.el.combo.textContent = t('combo', pl.combo, Math.min(5, 1 + Math.floor((pl.combo - 1) / 3)));
+        pl.el.combo.classList.add('on');
+      } else {
+        if (now >= pl.comboUntil) pl.combo = 0;
+        pl.el.combo.classList.remove('on');
+      }
+    }
+
+    requestAnimationFrame(frame);
+  }
+
+  // ---------------------------------------------------------------- pausing
+  // Every clock is wall-clock based, so anything that steals time has to hand
+  // it back: opening settings, or the tab going into the background.
+  function shiftClocks(ms) {
+    startedAt += ms; endsAt += ms; lastSpawn += ms; lastBird += ms;
+    lastT += ms; lastClap += ms; bannerUntil += ms; shakeUntil += ms;
+    for (const pl of P) {
+      pl.disco.until += ms; pl.disco.lastBeam += ms; pl.comboUntil += ms;
+      for (const bm of pl.disco.beams) bm.born += ms;
+    }
+    for (const b of bubbles) b.born += ms;
+  }
+
+  let pausedAt = 0;
+  function pause() {
+    if (paused || !running) return;
+    paused = true; pausedAt = performance.now();
+  }
+  function unpause() {
+    if (!paused) return;
+    paused = false;
+    if (running) shiftClocks(performance.now() - pausedAt);
+    shownSec = -1;
+  }
+
+  let hiddenAt = 0;
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { hiddenAt = performance.now(); return; }
+    if (!hiddenAt) return;
+    const away = performance.now() - hiddenAt;
+    hiddenAt = 0;
+    if (running && !paused) shiftClocks(away);
+  });
+
+  // ---------------------------------------------------------------- settings ui
+  let meterTimer = 0;
+  function runMeter() {
+    if (analyser) {
+      const peak = peakLevel();
+      meterFill.style.width = Math.min(100, peak / 0.6 * 100) + '%';
+      // The game loop is paused in here, so the meter does its own clap check.
+      const now = performance.now();
+      if (peak > Number(clapInput.value) / 100 && now - lastClap > 400) { lastClap = now; clapFlash = now; }
+      meterEl.classList.toggle('clapped', performance.now() - clapFlash < 220);
+    } else {
+      meterFill.style.width = '0%';
+    }
+  }
+
+  function openSettings() {
+    pause();
+    clearInterval(meterTimer);
+    meterTimer = setInterval(runMeter, 60);
+    setPaused.innerHTML = running ? t('paused') : '&nbsp;';
+    setSaid.textContent = '';
+    syncSettingsUi();
+    setScreen.hidden = false;
+  }
+  function closeSettings() {
+    clearInterval(meterTimer); meterTimer = 0;
+    setScreen.hidden = true;
+    if (!running) { (overScreen.dataset.wasOpen === '1' ? overScreen : startScreen).hidden = false; }
+    unpause();
+  }
+
+  function openSettingsFrom(screen) {
+    overScreen.dataset.wasOpen = screen === overScreen ? '1' : '0';
+    screen.hidden = true;
+    openSettings();
+  }
+
+  $('btnSettings').addEventListener('click', openSettings);
+  $('btnSettings2').addEventListener('click', () => openSettingsFrom(startScreen));
+  $('btnSettings3').addEventListener('click', () => openSettingsFrom(overScreen));
+  $('btnCloseSet').addEventListener('click', closeSettings);
+
+  lenInput.addEventListener('input', () => {
+    gameSeconds = Number(lenInput.value);
+    store.set('bubblepoke.len', gameSeconds);
+    lenVal.textContent = mmss(gameSeconds);
+    const levels = Math.max(1, Math.ceil(gameSeconds / LEVEL_SECONDS));
+    setSaid.textContent = t(running ? 'lenSaidLater' : 'lenSaid', humanTime(gameSeconds), levels);
+    renderRules();                       // the rules quote the game length
+  });
+  function setPlayers(n) {
+    players = n;
+    store.set('bubblepoke.players', n);
+    $('p1btn').setAttribute('aria-pressed', String(n === 1));
+    $('p2btn').setAttribute('aria-pressed', String(n === 2));
+  }
+  $('p1btn').addEventListener('click', () => setPlayers(1));
+  $('p2btn').addEventListener('click', () => setPlayers(2));
+
+  const setLang = l => { lang = l; applyLang(); };
+  $('langEn').addEventListener('click', () => setLang('en'));
+  $('langSv').addEventListener('click', () => setLang('sv'));
+  $('setLangEn').addEventListener('click', () => setLang('en'));
+  $('setLangSv').addEventListener('click', () => setLang('sv'));
+
+  $('btnModern').addEventListener('click', () => { theme = 'modern'; applyTheme(); });
+  $('btnArcade').addEventListener('click', () => { theme = 'arcade'; applyTheme(); });
+
+  powerInput.addEventListener('input', () => {
+    powerEvery = Number(powerInput.value);
+    store.set('bubblepoke.power', powerEvery);
+    powerVal.textContent = powerEvery;
+    if (!running) { nextCharge = powerEvery; updatePowerHud(); }
+    setSaid.textContent = t(running ? 'powerSaidLater' : 'powerSaid', powerEvery);
+    renderRules();                       // the rules quote the disco threshold
+  });
+  clapInput.addEventListener('input', () => {
+    clapVal.textContent = clapInput.value;
+    meterMark.style.left = (Number(clapInput.value) / 60 * 100) + '%';
+    store.set('bubblepoke.clapsens', clapInput.value);
+  });
+  btnClap.addEventListener('click', async () => {
+    if (clapOn) {
+      clapOn = false; stopMic();
+    } else {
+      audio();                                    // a click is the gesture that unlocks audio
+      clapOn = await enableMic();
+      if (!clapOn) setSaid.textContent = t('clapStaysOff');
+    }
+    store.set('bubblepoke.clap', clapOn ? '1' : '0');
+    syncSettingsUi();
+    updatePowerHud();
+  });
+
+  sensInput.addEventListener('input', () => {
+    sensVal.textContent = sensInput.value;
+    store.set('bubblepoke.sens', sensInput.value);
+  });
+  btnSound.addEventListener('click', () => {
+    soundOn = !soundOn;
+    store.set('bubblepoke.sound', soundOn ? '1' : '0');
+    syncSettingsUi();
+  });
+  btnDebug.addEventListener('click', () => {
+    debugOn = !debugOn;
+    store.set('bubblepoke.debug', debugOn ? '1' : '0');
+    syncSettingsUi();
+  });
+
+  $('btnClearBoard').addEventListener('click', () => {
+    store.del(BOARD_KEY);
+    store.del('bubblepoke.best');
+    best = 0;
+    lastEntry = null;
+    renderBoard([]);
+    syncSettingsUi();
+    setSaid.textContent = t('cleared');
+  });
+
+  $('btnExport').addEventListener('click', () => {
+    const list = loadBoard();
+    if (!list.length) { setSaid.textContent = t('nothingExport'); return; }
+    const blob = new Blob([JSON.stringify({ game: 'bubble-poke', saved: new Date().toISOString(), scores: list }, null, 2)],
+                          { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'bubble-poke-leaderboard.json';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    setSaid.textContent = t('exported');
+  });
+
+  $('btnImport').addEventListener('click', () => $('importFile').click());
+  $('importFile').addEventListener('change', async e => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const data = JSON.parse(await file.text());
+      const incoming = (Array.isArray(data) ? data : data.scores || []).map(cleanEntry).filter(Boolean);
+      if (!incoming.length) { setSaid.textContent = t('importEmpty'); return; }
+      const seen = new Set(loadBoard().map(x => x.id));
+      const merged = loadBoard().concat(incoming.filter(x => !seen.has(x.id)));
+      const before = loadBoard().length;
+      const after = writeBoard(merged).length;
+      renderBoard(loadBoard());
+      syncSettingsUi();
+      setSaid.textContent = t(after === before ? 'importedNone' : 'imported', incoming.length);
+    } catch {
+      setSaid.textContent = t('importBad');
+    }
+  });
+
+  // ---------------------------------------------------------------- input
+  // Mouse / touch works too — handy for testing and for the no-camera mode.
+  canvas.addEventListener('pointerdown', e => {
+    if (!running || paused) return;
+    const x = e.clientX, y = e.clientY, now = performance.now();
+    for (const p of birds) {                       // the phoenix has right of way
+      if (p.spent || P[p.p].out) continue;
+      const dy = y - birdY(p, now), dx = x - p.x;
+      if (dx * dx + dy * dy < (p.r * 0.8) ** 2) { burn(p, now); return; }
+    }
+    for (let i = bubbles.length - 1; i >= 0; i--) {
+      const b = bubbles[i];
+      if (b.pop || P[b.p].out) continue;
+      const dx = x - drawnX(b), dy = y - drawnY(b);
+      if (dx * dx + dy * dy < b.r * b.r) { popBubble(b); break; }
+    }
+  });
+
+  $('btnStart').addEventListener('click', startCamera);
+  $('btnNoCam').addEventListener('click', begin);
+  $('btnReset').addEventListener('click', begin);
+  $('btnAgain').addEventListener('click', begin);
+
+  document.addEventListener('keydown', e => {
+    if (e.target instanceof HTMLInputElement) return;   // not while typing a name
+    if (e.code === 'Space') { e.preventDefault(); fireDisco(performance.now()); return; }
+    if (e.key === 'f') document.documentElement.requestFullscreen?.();
+    if (e.key === 'Escape' && !setScreen.hidden) closeSettings();
+  });
+
+  setPlayers(Number(store.get('bubblepoke.players', 1)) === 2 ? 2 : 1);
+  makePlayers(players);
+  applyTheme();
+  applyLang();
+  timerEl.textContent = mmss(gameSeconds);
+
+  // ?debug=1 exposes read-only game state, for poking at the game from a console.
+  if (/[?&]debug=1\b/.test(location.search)) {
+    window.bubblePoke = {
+      get state() {
+        return { running, paused, level, players,
+                 scores: P.map(pl => pl.score), lives: P.map(pl => pl.lives),
+                 outs: P.map(pl => pl.out), charges: P.map(pl => pl.charges),
+                 lives0: P[0] && P[0].lives, score: P[0] && P[0].score, gameSeconds,
+                 secondsLeft: Math.max(0, Math.ceil((endsAt - performance.now()) / 1000)),
+                 bubbles: bubbles.length, birds: birds.map(b => ({ x: Math.round(b.x), y: Math.round(b.y), spent: b.spent })),
+                 earned: P[0] && P[0].earned, nextCharge: P[0] && P[0].nextCharge,
+                 powerEvery, clapOn, micOn: !!analyser,
+                 discoMsLeft: P.map(pl => Math.max(0, Math.round(pl.disco.until - performance.now()))),
+                 beams: P.reduce((n, pl) => n + pl.disco.beams.length, 0),
+                 bubblesBySide: P.map(pl => bubbles.filter(b => b.p === pl.i).length),
+                 bubbleX: bubbles.map(b => ({ p: b.p, x: Math.round(drawnX(b)) })),
+                 // any bubble or bird drawn outside the half it belongs to
+                 strays: bubbles.filter(b => { const B = bounds(b.p);
+                           const x = drawnX(b);
+                           return x < B.x0 - b.r * 2.5 || x > B.x1 + b.r * 2.5; }).length +
+                         birds.filter(b => { const B = bounds(b.p);
+                           return b.x < B.x0 - b.r * 3.5 || b.x > B.x1 + b.r * 3.5; }).length,
+                 tempo: +tempo().toFixed(2), levelSpeed: +levelCfg(level).speed.toFixed(2),
+                 fastest: Math.round(Math.max(0, ...bubbles.map(b => Math.hypot(b.vx, b.vy)))) };
+      },
+      fireDisco: () => fireDisco(performance.now()),
+      judgeClap: (peak, now) => judgeClap(peak, now === undefined ? performance.now() : now),
+      get noiseFloor() { return noiseFloor; },
+      get theme() { return theme; },
+      hitBird() {                                   // simulate touching the phoenix
+        const p = birds.find(b => !b.spent);
+        if (!p) return false;
+        burn(p, performance.now());
+        return true;
+      }
+    };
+  }
+})();
+</script>
+</body>
+</html>
